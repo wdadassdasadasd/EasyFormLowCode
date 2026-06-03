@@ -3,10 +3,10 @@
         <div class="left">
             <div class="logo">EasyForm</div>
             <div class="menu-list">
-                <div class="menu-item">应用管理</div>
-                <div class="menu-item">表单设计</div>
-                <div class="menu-item">JSON编辑</div>
-                <div class="menu-item">数据管理</div>
+                <div class="menu-item">工作台</div>
+                <div class="menu-item">项目管理</div>
+                <div class="menu-item">页面设计</div>
+                <div class="menu-item">页面预览</div>
                 <div class="menu-item">系统设置</div>
                     
             </div>

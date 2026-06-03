@@ -9,12 +9,30 @@ const router = createRouter({
       redirect: '/appmanage',
       children: [
         {
+          path: 'workbench',
+          name: '工作台',
+          component: () => import('../views/WorkBench.vue')
+
+        },
+        {
           path: 'appmanage',
+          name: '项目管理',
           component: () => import('../views/AppManage.vue')
         },
         {
-          path: 'formdesigner',
-          component: () => import('../views/FormDesigner.vue')
+          path: 'pagedesigner',
+          name: '页面设计',
+          component: () => import('../views/PageDesigner.vue')
+        },
+        {
+          path: 'preview',
+          name: '页面预览',
+          component: () => import('../views/Preview.vue')
+        },
+        {
+          path: 'setting',
+          name: '系统设置',
+          component: () => import('../views/Setting.vue')
         }
   ]
 }
