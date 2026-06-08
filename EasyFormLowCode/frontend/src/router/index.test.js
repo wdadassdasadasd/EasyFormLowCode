@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createRouter, createWebHistory, createMemoryHistory } from 'vue-router'
+import { createRouter, createMemoryHistory } from 'vue-router'
 
 // 模拟懒加载组件，避免实际导入 .vue 文件
 vi.mock('../views/Main.vue', () => ({ default: { name: 'Main', template: '<div>Main</div>' } }))
 vi.mock('../views/AppManage.vue', () => ({ default: { name: 'AppManage', template: '<div>AppManage</div>' } }))
-vi.mock('../views/FormDesigner.vue', () => ({ default: { name: 'FormDesigner', template: '<div>FormDesigner</div>' } }))
+vi.mock('../views/PageDesigner.vue', () => ({ default: { name: 'PageDesigner', template: '<div>PageDesigner</div>' } }))
 
 // 动态导入路由配置（使用与源文件相同的路由结构）
 function createTestRouter() {
@@ -14,17 +14,17 @@ function createTestRouter() {
       {
         path: '/',
         component: () => import('../views/Main.vue'),
-        redirect: '/appmanage',
+        redirect: '/pagedesigner',
         children: [
           {
             path: 'appmanage',
-            name: 'appmanage',
+            name: '项目管理',
             component: () => import('../views/AppManage.vue'),
           },
           {
-            path: 'formdesigner',
-            name: 'formdesigner',
-            component: () => import('../views/FormDesigner.vue'),
+            path: 'pagedesigner',
+            name: '页面设计',
+            component: () => import('../views/PageDesigner.vue'),
           },
         ],
       },
@@ -37,16 +37,16 @@ describe('Router Configuration', () => {
     const router = createTestRouter()
     const routes = router.getRoutes()
 
-    // 应该有 3 条路由：根路径（重定向）、appmanage、formdesigner
+    // 应该有根路径、appmanage、pagedesigner 等路由
     expect(routes.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('should redirect / to /appmanage', async () => {
+  it('should redirect / to /pagedesigner', async () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
 
-    expect(router.currentRoute.value.path).toBe('/appmanage')
+    expect(router.currentRoute.value.path).toBe('/pagedesigner')
   })
 
   it('should navigate to /appmanage', async () => {
@@ -55,25 +55,25 @@ describe('Router Configuration', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.path).toBe('/appmanage')
-    expect(router.currentRoute.value.name).toBe('appmanage')
+    expect(router.currentRoute.value.name).toBe('项目管理')
   })
 
-  it('should navigate to /formdesigner', async () => {
+  it('should navigate to /pagedesigner', async () => {
     const router = createTestRouter()
-    await router.push('/formdesigner')
+    await router.push('/pagedesigner')
     await router.isReady()
 
-    expect(router.currentRoute.value.path).toBe('/formdesigner')
-    expect(router.currentRoute.value.name).toBe('formdesigner')
+    expect(router.currentRoute.value.path).toBe('/pagedesigner')
+    expect(router.currentRoute.value.name).toBe('页面设计')
   })
 
-  it('should have appmanage and formdesigner as children of root', async () => {
+  it('should have pagedesigner as a child of root', async () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
 
     const matched = router.currentRoute.value.matched
-    // /appmanage 是 / 的子路由，matched 应包含父路由
+    // /pagedesigner 是 / 的子路由，matched 应包含父路由
     expect(matched.length).toBeGreaterThanOrEqual(1)
   })
 
@@ -83,9 +83,9 @@ describe('Router Configuration', () => {
     expect(resolved.path).toBe('/appmanage')
   })
 
-  it('should resolve FormDesigner component for /formdesigner', async () => {
+  it('should resolve PageDesigner component for /pagedesigner', async () => {
     const router = createTestRouter()
-    const resolved = router.resolve('/formdesigner')
-    expect(resolved.path).toBe('/formdesigner')
+    const resolved = router.resolve('/pagedesigner')
+    expect(resolved.path).toBe('/pagedesigner')
   })
 })

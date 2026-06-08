@@ -6,37 +6,35 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('../views/Main.vue'),
-      redirect: '/appmanage',
+      redirect: '/pagedesigner',
       children: [
         {
           path: 'workbench',
           name: '工作台',
-          component: () => import('../views/WorkBench.vue')
-
+          component: () => import('../views/WorkBench.vue'),
         },
         {
           path: 'appmanage',
           name: '项目管理',
-          component: () => import('../views/AppManage.vue')
+          component: () => import('../views/AppManage.vue'),
         },
         {
           path: 'pagedesigner',
           name: '页面设计',
-          component: () => import('../views/PageDesigner.vue')
+          component: () => import('../views/PageDesigner.vue'),
         },
         {
           path: 'preview',
           name: '页面预览',
-          component: () => import('../views/Preview.vue')
+          component: () => import('../views/Preview.vue'),
         },
         {
           path: 'setting',
           name: '系统设置',
-          component: () => import('../views/Setting.vue')
-        }
-  ]
-}
-    
+          component: () => import('../views/Setting.vue'),
+        },
+      ],
+    },
   ],
 })
 

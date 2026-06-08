@@ -1,0 +1,17 @@
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base
+
+
+class PageVersion(Base):
+    __tablename__ = "page_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    page_id: Mapped[int] = mapped_column(ForeignKey("pages.id"), index=True)
+    version_no: Mapped[int] = mapped_column(Integer, index=True)
+    message: Mapped[str] = mapped_column(String(200), default="保存页面配置")
+    schema_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

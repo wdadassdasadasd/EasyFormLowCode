@@ -34,6 +34,16 @@ coverage
 
 # Vitest
 __screenshots__/
+.codex-logs/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Runtime databases
+backend/*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+backend/tests/.tmp/
