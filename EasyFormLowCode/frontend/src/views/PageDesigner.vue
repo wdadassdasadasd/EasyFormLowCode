@@ -3,18 +3,24 @@
     <aside class="material-panel">
       <section class="panel-block">
         <div class="panel-title">
-          <span>基础字段</span>
-          <span class="collapse-mark">⌃</span>
+          <span>字段物料</span>
+          <span class="collapse-mark">⌄</span>
         </div>
 
-        <button class="material-card active" type="button" @click="addTextField">
-          <span class="material-icon">T</span>
-          <span>单行文本</span>
+        <button
+          v-for="fieldType in materialFieldTypes"
+          :key="fieldType.type"
+          class="material-card"
+          type="button"
+          @click="addField(fieldType.type)"
+        >
+          <span class="material-icon">{{ fieldType.material.icon }}</span>
+          <span>{{ fieldType.label }}</span>
         </button>
 
         <div class="material-empty">
-          <strong>更多字段类型后续开放</strong>
-          <p>当前版本聚焦后台 CRUD 字段配置，搜索表单、数据表格和弹窗表单会由 PageSchema 自动生成。</p>
+          <strong>字段级低代码</strong>
+          <p>当前版本只开放字段配置和排序，不做自由布局、嵌套容器或组件级画布。</p>
         </div>
       </section>
     </aside>
@@ -42,13 +48,7 @@
             @click.stop="selectField(field.id)"
           >
             <span v-if="isFieldSelected(field)" class="selected-field-badge">已选中</span>
-            <el-input
-              v-model="searchModel[field.prop]"
-              :maxlength="field.maxLength"
-              :placeholder="field.placeholder"
-              clearable
-              @keyup.enter="applySearch"
-            />
+            <FieldControl v-model="searchModel[field.prop]" :field="field" mode="search" @enter="applySearch" />
           </el-form-item>
 
           <div class="search-actions">
@@ -61,13 +61,13 @@
       <section class="table-card">
         <div class="table-toolbar">
           <div class="toolbar-left">
-            <el-button type="primary" @click="openCreateDialog">+ 新增</el-button>
-            <el-button :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">✎ 编辑</el-button>
+            <el-button type="primary" @click="openCreateDialog">新增</el-button>
+            <el-button :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
             <el-button type="danger" plain :disabled="selectedRows.length === 0" @click="deleteSelectedRows">
               删除
             </el-button>
           </div>
-          <span class="toolbar-tip">物料仅开放单行文本，表格/搜索/表单由 PageSchema 驱动</span>
+          <span class="toolbar-tip">字段顺序驱动搜索项、表格列和弹窗表单顺序</span>
         </div>
 
         <el-table
@@ -79,24 +79,18 @@
           @selection-change="selectedRows = $event"
         >
           <el-table-column type="selection" width="44" />
-          <el-table-column
-            v-for="field in tableFields"
-            :key="field.id"
-            :prop="field.prop"
-            :label="field.label"
-            min-width="140"
-          >
-            <template #header>
+          <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field">
+            <template #header="{ field: headerField }">
               <button
                 class="column-select-target"
-                :class="{ active: isFieldSelected(field) }"
+                :class="{ active: isFieldSelected(headerField) }"
                 type="button"
-                @click.stop="selectField(field.id)"
+                @click.stop="selectField(headerField.id)"
               >
-                {{ field.label }}
+                {{ headerField.label }}
               </button>
             </template>
-          </el-table-column>
+          </TableFieldColumn>
           <el-table-column label="操作" width="150" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
@@ -117,7 +111,6 @@
           />
         </div>
       </section>
-
     </section>
 
     <aside class="property-panel">
@@ -140,44 +133,89 @@
 
         <el-tab-pane label="字段属性" name="field">
           <template v-if="selectedField">
-            <el-form class="property-form" label-position="left" label-width="76px">
-              <el-form-item label="标签名" required>
-                <el-input v-model="selectedField.label" @input="markSchemaDirty" />
-              </el-form-item>
-              <el-form-item label="Prop" required>
-                <el-input v-model="selectedField.prop" @change="normalizeFieldProp" />
-              </el-form-item>
-              <el-form-item label="类型" required>
-                <el-select v-model="selectedField.type" disabled>
-                  <el-option label="单行文本" value="input" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="必填">
-                <el-switch v-model="selectedField.required" @change="markSchemaDirty" />
-              </el-form-item>
-              <el-form-item label="可搜索">
-                <el-switch v-model="selectedField.searchable" @change="handleFieldStructureChange" />
-              </el-form-item>
-              <el-form-item label="表格显示">
-                <el-switch v-model="selectedField.tableVisible" @change="markSchemaDirty" />
-              </el-form-item>
-              <el-form-item label="表单显示">
-                <el-switch v-model="selectedField.formVisible" @change="handleFieldStructureChange" />
-              </el-form-item>
-              <el-form-item label="占位提示">
-                <el-input v-model="selectedField.placeholder" @input="markSchemaDirty" />
-              </el-form-item>
-              <el-form-item label="默认值">
-                <el-input v-model="selectedField.defaultValue" @input="markSchemaDirty" />
-              </el-form-item>
-              <el-form-item label="最大长度">
-                <el-input-number
-                  v-model="selectedField.maxLength"
-                  :min="1"
-                  :max="200"
-                  controls-position="right"
-                  @change="markSchemaDirty"
+            <el-form class="property-form" label-position="left" label-width="82px">
+              <el-form-item
+                v-for="setter in selectedFieldSetters"
+                :key="setter.prop"
+                :label="setter.label"
+                :required="setter.required"
+              >
+                <el-input
+                  v-if="setter.setter === 'input' && setter.prop !== 'defaultValue'"
+                  v-model="selectedField[setter.prop]"
+                  @input="handleSetterChange(setter)"
+                  @change="handleSetterCommit(setter)"
                 />
+
+                <el-input
+                  v-else-if="setter.setter === 'input' && setter.prop === 'defaultValue' && !usesOptionDefaultValue"
+                  v-model="selectedField.defaultValue"
+                  @input="markSchemaDirty"
+                />
+
+                <el-select
+                  v-else-if="setter.setter === 'input' && setter.prop === 'defaultValue' && usesOptionDefaultValue"
+                  v-model="selectedField.defaultValue"
+                  clearable
+                  @change="markSchemaDirty"
+                >
+                  <el-option
+                    v-for="option in selectedField.options"
+                    :key="String(option.value)"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+
+                <el-switch
+                  v-else-if="setter.setter === 'switch'"
+                  v-model="selectedField[setter.prop]"
+                  @change="handleSetterChange(setter)"
+                />
+
+                <el-input-number
+                  v-else-if="setter.setter === 'number'"
+                  v-model="selectedField[setter.prop]"
+                  :min="setter.min"
+                  :max="setter.max"
+                  controls-position="right"
+                  @change="handleSetterChange(setter)"
+                />
+
+                <el-select
+                  v-else-if="setter.setter === 'select'"
+                  v-model="selectedField[setter.prop]"
+                  @change="handleSetterChange(setter)"
+                >
+                  <el-option
+                    v-for="option in setter.options"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+
+                <el-select
+                  v-else-if="setter.setter === 'typeSelect'"
+                  v-model="selectedField.type"
+                  @change="handleFieldTypeChange"
+                >
+                  <el-option
+                    v-for="fieldType in materialFieldTypes"
+                    :key="fieldType.type"
+                    :label="fieldType.label"
+                    :value="fieldType.type"
+                  />
+                </el-select>
+
+                <div v-else-if="setter.setter === 'options'" class="option-setter">
+                  <div v-for="(option, optionIndex) in selectedField.options" :key="optionIndex" class="option-row">
+                    <el-input v-model="option.label" placeholder="选项名" @input="markSchemaDirty" />
+                    <el-input v-model="option.value" placeholder="选项值" @input="markSchemaDirty" />
+                    <el-button text type="danger" @click="removeOption(optionIndex)">删除</el-button>
+                  </div>
+                  <el-button plain size="small" @click="addOption">添加选项</el-button>
+                </div>
               </el-form-item>
 
               <el-button type="danger" plain class="delete-field-button" @click="deleteSelectedField">
@@ -187,37 +225,47 @@
 
             <div class="field-list-title">字段列表</div>
             <div class="field-list">
-              <button
-                v-for="field in pageSchema.fields"
+              <div
+                v-for="(field, index) in pageSchema.fields"
                 :key="field.id"
-                type="button"
+                class="field-list-item"
                 :class="{ active: field.id === selectedField.id }"
-                @click="selectField(field.id)"
               >
-                <span>{{ field.label }}</span>
-                <small>{{ field.prop }}</small>
-              </button>
+                <button type="button" @click="selectField(field.id)">
+                  <span>{{ field.label }}</span>
+                  <small>{{ field.prop }}</small>
+                </button>
+                <div class="field-order-actions">
+                  <el-button text size="small" :disabled="index === 0" @click="moveField(index, -1)">上移</el-button>
+                  <el-button
+                    text
+                    size="small"
+                    :disabled="index === pageSchema.fields.length - 1"
+                    @click="moveField(index, 1)"
+                  >
+                    下移
+                  </el-button>
+                </div>
+              </div>
             </div>
           </template>
 
-          <div v-else class="empty-property">
-            点击左侧“单行文本”新增字段，或选择预览区中的搜索项、表格列、弹窗字段。
-          </div>
+          <div v-else class="empty-property">从左侧添加字段，或选择预览区中的搜索项、表格列、弹窗字段。</div>
         </el-tab-pane>
 
         <el-tab-pane label="表格属性" name="table">
           <div class="property-summary">
             <strong>数据表格</strong>
             <p>当前展示 {{ tableFields.length }} 个字段列，行主键为 {{ pageSchema.table?.rowKey || 'id' }}。</p>
-            <p>第一版表格由字段的“表格显示”配置自动生成，复杂列配置后续开放。</p>
+            <p>第一阶段表格列由字段顺序和“表格显示”配置自动生成。</p>
           </div>
         </el-tab-pane>
 
         <el-tab-pane label="表单属性" name="form">
           <div class="property-summary">
-            <strong>新增/编辑弹窗</strong>
+            <strong>新增 / 编辑弹窗</strong>
             <p>当前展示 {{ formFields.length }} 个表单字段，弹窗宽度 {{ pageSchema.formDialog?.width || '600px' }}。</p>
-            <p>第一版表单由字段的“表单显示”和“必填”配置自动生成。</p>
+            <p>第一阶段弹窗字段由字段顺序、“表单显示”和校验配置自动生成。</p>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -237,12 +285,7 @@
           @click.stop="selectField(field.id)"
         >
           <span v-if="isFieldSelected(field)" class="selected-field-badge">已选中</span>
-          <el-input
-            v-model="dialogForm[field.prop]"
-            :maxlength="field.maxLength"
-            :placeholder="field.placeholder"
-            show-word-limit
-          />
+          <FieldControl v-model="dialogForm[field.prop]" :field="field" mode="form" />
         </el-form-item>
       </el-form>
 
@@ -277,7 +320,7 @@
 
     <el-dialog v-model="exportDialogVisible" title="导出代码" width="520px">
       <div class="export-dialog">
-        <p>导出当前 PageSchema，以及基于单行文本字段生成的 Vue 单文件组件。</p>
+        <p>导出当前 PageSchema，以及基于统一字段注册表生成的 Vue 单文件组件。</p>
         <el-button type="primary" plain @click="downloadSchema">下载 schema JSON</el-button>
         <el-button type="primary" @click="downloadVueSfc">下载 Vue SFC</el-button>
       </div>
@@ -290,6 +333,20 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import FieldControl from '../renderer/FieldControl.vue'
+import TableFieldColumn from '../renderer/TableFieldColumn.vue'
+import {
+  MATERIAL_FIELD_TYPES,
+  buildFieldRules,
+  createFieldByType,
+  ensureUniqueProp,
+  getFieldInitialValue,
+  getFieldsByUsage,
+  getPropertySetters,
+  normalizeField,
+  normalizeOptions,
+  normalizeProp,
+} from '../schema/fieldTypes'
 import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
 
 const PAGE_ID = 'user_manage'
@@ -323,12 +380,20 @@ const pagination = reactive({
   pageSize: 10,
   total: 0,
 })
-
 const pageSchema = reactive(createDefaultSchema())
 const recordRows = ref([])
+const materialFieldTypes = MATERIAL_FIELD_TYPES
 
 const selectedField = computed(() => {
   return pageSchema.fields.find((field) => field.id === selectedFieldId.value)
+})
+
+const selectedFieldSetters = computed(() => {
+  return selectedField.value ? getPropertySetters(selectedField.value) : []
+})
+
+const usesOptionDefaultValue = computed(() => {
+  return ['select', 'radio'].includes(selectedField.value?.type)
 })
 
 const editorStatusText = computed(() => {
@@ -353,17 +418,9 @@ const editorStatusType = computed(() => {
   return typeMap[editorStatus.value] || 'warning'
 })
 
-const searchableFields = computed(() => {
-  return pageSchema.fields.filter((field) => field.searchable)
-})
-
-const tableFields = computed(() => {
-  return pageSchema.fields.filter((field) => field.tableVisible)
-})
-
-const formFields = computed(() => {
-  return pageSchema.fields.filter((field) => field.formVisible)
-})
+const searchableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'search'))
+const tableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'table'))
+const formFields = computed(() => getFieldsByUsage(pageSchema.fields, 'form'))
 
 watch(
   [editorStatusText, editorStatusType],
@@ -381,7 +438,7 @@ watch(
 )
 
 watch(
-  () => pageSchema.fields.map((field) => field.prop),
+  () => pageSchema.fields.map((field) => `${field.prop}:${field.type}:${field.searchable}:${field.formVisible}`),
   () => {
     syncModels()
   },
@@ -406,7 +463,7 @@ function createDefaultSchema() {
       deleteUrl: `/api/runtime/pages/${PAGE_ID}/records/:id`,
     },
     fields: [
-      createTextField({
+      createFieldByType('input', {
         id: 'field_username',
         label: '用户名',
         prop: 'username',
@@ -426,44 +483,18 @@ function createDefaultSchema() {
   }
 }
 
-function createTextField(overrides = {}, index = 1) {
-  return {
-    id: `field_${Date.now()}_${index}`,
-    label: `单行文本${index}`,
-    prop: `text_${index}`,
-    type: 'input',
-    required: false,
-    searchable: true,
-    tableVisible: true,
-    formVisible: true,
-    placeholder: `请输入单行文本${index}`,
-    defaultValue: '',
-    maxLength: 50,
-    options: [],
-    ...overrides,
-  }
-}
-
 function replaceSchema(nextSchema) {
   const defaultSchema = createDefaultSchema()
-  const normalized = {
+  const rawFields = Array.isArray(nextSchema?.fields) ? nextSchema.fields : defaultSchema.fields
+  const normalizedFields = rawFields.map((field, index) => normalizeField(field, index + 1, rawFields))
+
+  Object.assign(pageSchema, {
     ...defaultSchema,
     ...nextSchema,
-    fields: Array.isArray(nextSchema?.fields) ? nextSchema.fields.map(normalizeField) : defaultSchema.fields,
-  }
-
-  Object.assign(pageSchema, normalized)
+    fields: normalizedFields,
+  })
   selectedFieldId.value = pageSchema.fields[0]?.id || ''
   syncModels()
-}
-
-function normalizeField(field, index) {
-  return {
-    ...createTextField({}, index + 1),
-    ...field,
-    type: 'input',
-    options: [],
-  }
 }
 
 async function loadSchema() {
@@ -499,7 +530,7 @@ async function loadRecords() {
     searchableFields.value.forEach((field) => {
       const value = searchModel[field.prop]
 
-      if (value) {
+      if (value !== '' && value !== undefined && value !== null) {
         params.set(field.prop, value)
       }
     })
@@ -569,8 +600,9 @@ async function publishSchema() {
   }
 }
 
-function addTextField() {
-  const field = createTextField({}, pageSchema.fields.length + 1)
+function addField(type) {
+  const field = createFieldByType(type, {}, pageSchema.fields.length + 1)
+  field.prop = ensureUniqueProp(field.prop, field.id, pageSchema.fields)
   pageSchema.fields.push(field)
   selectedFieldId.value = field.id
   activePropertyTab.value = 'field'
@@ -596,38 +628,102 @@ function deleteSelectedField() {
   ElMessage.success('字段已删除')
 }
 
+function moveField(index, offset) {
+  const nextIndex = index + offset
+
+  if (nextIndex < 0 || nextIndex >= pageSchema.fields.length) {
+    return
+  }
+
+  const [field] = pageSchema.fields.splice(index, 1)
+  pageSchema.fields.splice(nextIndex, 0, field)
+  selectedFieldId.value = field.id
+  markSchemaDirty()
+}
+
+function handleSetterChange(setter) {
+  if (setter.structural) {
+    syncModels()
+  }
+
+  markSchemaDirty()
+}
+
+function handleSetterCommit(setter) {
+  if (setter.prop === 'prop') {
+    normalizeFieldProp()
+  }
+}
+
+function handleFieldTypeChange() {
+  if (!selectedField.value) {
+    return
+  }
+
+  const current = selectedField.value
+  const normalized = normalizeField(
+    {
+      id: current.id,
+      label: current.label,
+      prop: current.prop,
+      type: current.type,
+      required: current.required,
+      searchable: current.searchable,
+      tableVisible: current.tableVisible,
+      formVisible: current.formVisible,
+    },
+    pageSchema.fields.indexOf(current) + 1,
+    pageSchema.fields,
+  )
+  Object.keys(current).forEach((key) => {
+    delete current[key]
+  })
+  Object.assign(current, normalized)
+  syncModels()
+  markSchemaDirty()
+}
+
 function normalizeFieldProp() {
   if (!selectedField.value) {
     return
   }
 
-  const fallback = `text_${pageSchema.fields.indexOf(selectedField.value) + 1}`
-  const normalizedProp =
-    selectedField.value.prop
-      .trim()
-      .replace(/\s+/g, '_')
-      .replace(/[^\w]/g, '') || fallback
-  const duplicated = pageSchema.fields.some((field) => {
-    return field.id !== selectedField.value.id && field.prop === normalizedProp
-  })
-
-  selectedField.value.prop = duplicated ? `${normalizedProp}_${Date.now().toString().slice(-4)}` : normalizedProp
+  const fallback = `${selectedField.value.type}_${pageSchema.fields.indexOf(selectedField.value) + 1}`
+  const normalizedProp = normalizeProp(selectedField.value.prop, fallback)
+  selectedField.value.prop = ensureUniqueProp(normalizedProp, selectedField.value.id, pageSchema.fields)
   syncModels()
   markSchemaDirty()
 }
 
-function handleFieldStructureChange() {
-  syncModels()
+function addOption() {
+  if (!selectedField.value) {
+    return
+  }
+
+  selectedField.value.options.push({
+    label: `选项${selectedField.value.options.length + 1}`,
+    value: `option_${selectedField.value.options.length + 1}`,
+  })
+  markSchemaDirty()
+}
+
+function removeOption(index) {
+  if (!selectedField.value) {
+    return
+  }
+
+  selectedField.value.options.splice(index, 1)
+  selectedField.value.options = normalizeOptions(selectedField.value.options)
   markSchemaDirty()
 }
 
 function syncModels() {
   syncObjectKeys(searchModel, searchableFields.value)
   syncObjectKeys(dialogForm, formFields.value)
-  syncObjectKeys(formErrors, formFields.value)
+  syncObjectKeys(formErrors, formFields.value, '')
 }
 
-function syncObjectKeys(target, fields) {
+function syncObjectKeys(target, fields, emptyValue) {
   Object.keys(target).forEach((key) => {
     if (!fields.some((field) => field.prop === key)) {
       delete target[key]
@@ -636,14 +732,14 @@ function syncObjectKeys(target, fields) {
 
   fields.forEach((field) => {
     if (!(field.prop in target)) {
-      target[field.prop] = field.defaultValue || ''
+      target[field.prop] = emptyValue !== undefined ? emptyValue : getFieldInitialValue(field)
     }
   })
 }
 
 function resetSearch() {
-  Object.keys(searchModel).forEach((key) => {
-    searchModel[key] = ''
+  searchableFields.value.forEach((field) => {
+    searchModel[field.prop] = ''
   })
   pagination.currentPage = 1
   loadRecords()
@@ -661,7 +757,7 @@ function openCreateDialog() {
   clearFormErrors()
   clearObject(originalDialogData)
   formFields.value.forEach((field) => {
-    dialogForm[field.prop] = field.defaultValue || ''
+    dialogForm[field.prop] = getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
@@ -683,7 +779,7 @@ function openEditDialog(row) {
   clearObject(originalDialogData)
   Object.assign(originalDialogData, row)
   formFields.value.forEach((field) => {
-    dialogForm[field.prop] = row[field.prop] || field.defaultValue || ''
+    dialogForm[field.prop] = row[field.prop] ?? getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
@@ -701,7 +797,7 @@ async function submitDialog() {
     }
     delete payload.id
     formFields.value.forEach((field) => {
-      payload[field.prop] = dialogForm[field.prop] || ''
+      payload[field.prop] = dialogForm[field.prop]
     })
 
     const isEdit = dialogMode.value === 'edit' && editingRecordId.value
@@ -736,16 +832,11 @@ function validateDialog() {
   let valid = true
 
   formFields.value.forEach((field) => {
-    const value = dialogForm[field.prop] || ''
+    const value = dialogForm[field.prop]
+    const failedRule = buildFieldRules(field).find((rule) => !rule.validator(value))
 
-    if (field.required && !String(value).trim()) {
-      formErrors[field.prop] = '请输入必填项'
-      valid = false
-      return
-    }
-
-    if (field.maxLength && String(value).length > field.maxLength) {
-      formErrors[field.prop] = `最多输入 ${field.maxLength} 个字符`
+    if (failedRule) {
+      formErrors[field.prop] = failedRule.message
       valid = false
     }
   })
@@ -871,6 +962,7 @@ function buildVersionSummary(schema) {
     fields: schema.fields?.map((field) => ({
       label: field.label,
       prop: field.prop,
+      type: field.type,
       searchable: field.searchable,
       tableVisible: field.tableVisible,
       formVisible: field.formVisible,
@@ -933,7 +1025,7 @@ defineExpose({
 <style lang="scss" scoped>
 .designer {
   display: grid;
-  grid-template-columns: 210px minmax(560px, 1fr) 340px;
+  grid-template-columns: 210px minmax(560px, 1fr) 360px;
   gap: 12px;
   height: calc(100vh - 90px);
   min-height: 760px;
@@ -990,16 +1082,18 @@ defineExpose({
   cursor: pointer;
 }
 
-.material-card.active:hover {
+.material-card:hover {
   color: #1267f8;
   border-color: #1267f8;
   box-shadow: 0 6px 16px rgb(18 103 248 / 12%);
 }
 
 .material-icon {
+  width: 22px;
   color: #1267f8;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
+  text-align: center;
 }
 
 .material-empty {
@@ -1189,66 +1283,82 @@ defineExpose({
   display: none;
 }
 
-:deep(.property-tabs .el-tabs__item) {
-  padding: 0 8px;
-  font-size: 13px;
-}
-
 .property-form {
-  padding: 16px 20px 4px;
+  padding: 18px 16px 0;
 }
 
 .delete-field-button {
   width: 100%;
-  margin-top: 2px;
+  margin-top: 8px;
+}
+
+.option-setter {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.option-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
 }
 
 .field-list-title {
-  padding: 14px 20px 10px;
+  padding: 12px 16px 8px;
   color: #172033;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .field-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 8px;
-  padding: 0 20px;
+  padding: 0 16px 16px;
 }
 
-.field-list button {
-  display: flex;
+.field-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
-  height: 38px;
-  padding: 0 12px;
-  color: #344054;
+  padding: 8px;
+  border: 1px solid #e4eaf2;
+  border-radius: 6px;
+}
+
+.field-list-item.active {
+  border-color: #1267f8;
+  background: #f4f8ff;
+}
+
+.field-list-item > button {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  color: #24324b;
   font: inherit;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 5px;
+  text-align: left;
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 
-.field-list button.active {
-  color: #1267f8;
-  background: #edf5ff;
-  border-color: #1267f8;
-}
-
-.field-list small {
-  color: #8a95a8;
-}
-
-.empty-property {
-  padding: 28px 20px;
+.field-list-item small {
   color: #7b8798;
-  line-height: 1.7;
 }
 
+.field-order-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.empty-property,
 .property-summary {
-  padding: 18px 20px;
+  padding: 18px 16px;
   color: #5d6b82;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -1256,28 +1366,14 @@ defineExpose({
   display: block;
   margin-bottom: 8px;
   color: #172033;
-  font-size: 15px;
-}
-
-.property-summary p {
-  margin: 0 0 8px;
-  font-size: 13px;
-}
-
-.version-drawer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .version-item {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px;
-  border: 1px solid #e4eaf2;
-  border-radius: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid #eef2f7;
 }
 
 .version-item strong,
@@ -1286,11 +1382,8 @@ defineExpose({
   display: block;
 }
 
-.version-item span,
 .version-item small {
-  margin-top: 4px;
-  color: #68748a;
-  font-size: 12px;
+  color: #8a95a8;
 }
 
 .version-actions {
@@ -1299,29 +1392,15 @@ defineExpose({
 }
 
 .version-detail {
-  padding: 12px;
-  border: 1px solid #e4eaf2;
-  border-radius: 6px;
-}
-
-.version-detail h3 {
-  margin: 0 0 6px;
-  font-size: 16px;
-}
-
-.version-detail p {
-  margin: 0 0 10px;
-  color: #68748a;
+  margin-top: 16px;
 }
 
 .version-detail pre {
-  overflow: auto;
   max-height: 260px;
-  padding: 10px;
-  margin: 0;
-  color: #24324b;
+  padding: 12px;
+  overflow: auto;
   background: #f8fafc;
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
 .export-dialog {
@@ -1331,27 +1410,22 @@ defineExpose({
 }
 
 .export-dialog p {
-  width: 100%;
+  flex-basis: 100%;
   margin: 0 0 4px;
   color: #5d6b82;
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 0;
-}
-
-:deep(.property-form .el-form-item) {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 @media (max-width: 1280px) {
   .designer {
-    grid-template-columns: 200px minmax(500px, 1fr) 320px;
+    grid-template-columns: 190px minmax(520px, 1fr) 330px;
   }
 
   .search-form {
     grid-template-columns: repeat(2, minmax(170px, 1fr));
   }
-
 }
 </style>

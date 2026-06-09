@@ -14,13 +14,7 @@
       <el-empty v-if="searchableFields.length === 0" description="暂无可搜索字段" :image-size="64" />
       <el-form v-else class="search-form" :model="searchModel" label-position="left">
         <el-form-item v-for="field in searchableFields" :key="field.id" :label="field.label">
-          <el-input
-            v-model="searchModel[field.prop]"
-            :maxlength="field.maxLength"
-            :placeholder="field.placeholder"
-            clearable
-            @keyup.enter="applySearch"
-          />
+          <FieldControl v-model="searchModel[field.prop]" :field="field" mode="search" @enter="applySearch" />
         </el-form-item>
 
         <div class="search-actions">
@@ -33,7 +27,7 @@
     <section class="table-card">
       <div class="table-toolbar">
         <div class="toolbar-left">
-          <el-button type="primary" @click="openCreateDialog">+ 新增</el-button>
+          <el-button type="primary" @click="openCreateDialog">新增</el-button>
           <el-button :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
           <el-button type="danger" plain :disabled="selectedRows.length === 0" @click="deleteSelectedRows">
             删除
@@ -50,13 +44,7 @@
         @selection-change="selectedRows = $event"
       >
         <el-table-column type="selection" width="44" />
-        <el-table-column
-          v-for="field in tableFields"
-          :key="field.id"
-          :prop="field.prop"
-          :label="field.label"
-          min-width="140"
-        />
+        <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
@@ -88,12 +76,7 @@
           :required="field.required"
           :error="formErrors[field.prop]"
         >
-          <el-input
-            v-model="dialogForm[field.prop]"
-            :maxlength="field.maxLength"
-            :placeholder="field.placeholder"
-            show-word-limit
-          />
+          <FieldControl v-model="dialogForm[field.prop]" :field="field" mode="form" />
         </el-form-item>
       </el-form>
 
@@ -108,6 +91,16 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+
+import FieldControl from '../renderer/FieldControl.vue'
+import TableFieldColumn from '../renderer/TableFieldColumn.vue'
+import {
+  buildFieldRules,
+  createFieldByType,
+  getFieldInitialValue,
+  getFieldsByUsage,
+  normalizeField,
+} from '../schema/fieldTypes'
 
 const PAGE_ID = 'user_manage'
 const API_BASE = 'http://127.0.0.1:8000/api'
@@ -133,15 +126,23 @@ const pagination = reactive({
 const pageSchema = reactive(createDefaultSchema())
 const recordRows = ref([])
 
-const searchableFields = computed(() => pageSchema.fields.filter((field) => field.searchable))
-const tableFields = computed(() => pageSchema.fields.filter((field) => field.tableVisible))
-const formFields = computed(() => pageSchema.fields.filter((field) => field.formVisible))
+const searchableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'search'))
+const tableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'table'))
+const formFields = computed(() => getFieldsByUsage(pageSchema.fields, 'form'))
 
 watch(
   () => [pagination.currentPage, pagination.pageSize],
   () => {
     loadRecords()
   },
+)
+
+watch(
+  () => pageSchema.fields.map((field) => `${field.prop}:${field.type}:${field.searchable}:${field.formVisible}`),
+  () => {
+    syncModels()
+  },
+  { deep: true },
 )
 
 onMounted(async () => {
@@ -155,22 +156,28 @@ function createDefaultSchema() {
     title: '用户管理',
     pageType: 'crud',
     fields: [
-      {
+      createFieldByType('input', {
         id: 'field_username',
         label: '用户名',
         prop: 'username',
-        type: 'input',
-        required: false,
-        searchable: true,
-        tableVisible: true,
-        formVisible: true,
         placeholder: '请输入用户名',
-        defaultValue: '',
-        maxLength: 50,
-        options: [],
-      },
+      }),
     ],
   }
+}
+
+function replaceSchema(nextSchema) {
+  const defaultSchema = createDefaultSchema()
+  const fields = Array.isArray(nextSchema?.fields)
+    ? nextSchema.fields.map((field, index) => normalizeField(field, index + 1, nextSchema.fields))
+    : defaultSchema.fields
+
+  Object.assign(pageSchema, {
+    ...defaultSchema,
+    ...nextSchema,
+    fields,
+  })
+  syncModels()
 }
 
 async function loadSchema() {
@@ -182,19 +189,13 @@ async function loadSchema() {
     }
 
     const result = await response.json()
-    Object.assign(pageSchema, {
-      ...createDefaultSchema(),
-      ...result.schema_json,
-      fields: Array.isArray(result.schema_json?.fields) ? result.schema_json.fields : createDefaultSchema().fields,
-    })
+    replaceSchema(result.schema_json)
     pageStatus.value = result.status
     statusText.value = '运行态页面已加载'
-    syncModels()
   } catch (error) {
-    Object.assign(pageSchema, createDefaultSchema())
+    replaceSchema(createDefaultSchema())
     pageStatus.value = 'draft'
     statusText.value = '后端未启动，当前使用默认 schema'
-    syncModels()
   }
 }
 
@@ -210,7 +211,7 @@ async function loadRecords() {
     searchableFields.value.forEach((field) => {
       const value = searchModel[field.prop]
 
-      if (value) {
+      if (value !== '' && value !== undefined && value !== null) {
         params.set(field.prop, value)
       }
     })
@@ -236,10 +237,10 @@ async function loadRecords() {
 function syncModels() {
   syncObjectKeys(searchModel, searchableFields.value)
   syncObjectKeys(dialogForm, formFields.value)
-  syncObjectKeys(formErrors, formFields.value)
+  syncObjectKeys(formErrors, formFields.value, '')
 }
 
-function syncObjectKeys(target, fields) {
+function syncObjectKeys(target, fields, emptyValue) {
   Object.keys(target).forEach((key) => {
     if (!fields.some((field) => field.prop === key)) {
       delete target[key]
@@ -248,14 +249,14 @@ function syncObjectKeys(target, fields) {
 
   fields.forEach((field) => {
     if (!(field.prop in target)) {
-      target[field.prop] = field.defaultValue || ''
+      target[field.prop] = emptyValue !== undefined ? emptyValue : getFieldInitialValue(field)
     }
   })
 }
 
 function resetSearch() {
-  Object.keys(searchModel).forEach((key) => {
-    searchModel[key] = ''
+  searchableFields.value.forEach((field) => {
+    searchModel[field.prop] = ''
   })
   pagination.currentPage = 1
   loadRecords()
@@ -273,7 +274,7 @@ function openCreateDialog() {
   clearFormErrors()
   clearObject(originalDialogData)
   formFields.value.forEach((field) => {
-    dialogForm[field.prop] = field.defaultValue || ''
+    dialogForm[field.prop] = getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
@@ -295,7 +296,7 @@ function openEditDialog(row) {
   clearObject(originalDialogData)
   Object.assign(originalDialogData, row)
   formFields.value.forEach((field) => {
-    dialogForm[field.prop] = row[field.prop] || field.defaultValue || ''
+    dialogForm[field.prop] = row[field.prop] ?? getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
@@ -311,7 +312,7 @@ async function submitDialog() {
     const payload = { ...originalDialogData }
     delete payload.id
     formFields.value.forEach((field) => {
-      payload[field.prop] = dialogForm[field.prop] || ''
+      payload[field.prop] = dialogForm[field.prop]
     })
 
     const isEdit = dialogMode.value === 'edit' && editingRecordId.value
@@ -345,16 +346,11 @@ function validateDialog() {
   let valid = true
 
   formFields.value.forEach((field) => {
-    const value = dialogForm[field.prop] || ''
+    const value = dialogForm[field.prop]
+    const failedRule = buildFieldRules(field).find((rule) => !rule.validator(value))
 
-    if (field.required && !String(value).trim()) {
-      formErrors[field.prop] = '请输入必填项'
-      valid = false
-      return
-    }
-
-    if (field.maxLength && String(value).length > field.maxLength) {
-      formErrors[field.prop] = `最多输入 ${field.maxLength} 个字符`
+    if (failedRule) {
+      formErrors[field.prop] = failedRule.message
       valid = false
     }
   })
