@@ -2,8 +2,8 @@ import { mount } from '@vue/test-utils'
 import { ElInput, ElInputNumber, ElOption, ElSelect } from 'element-plus'
 import { describe, expect, it } from 'vitest'
 
-import { createFieldByType } from '../schema/fieldTypes'
-import FieldControl from './FieldControl.vue'
+import { createFieldByType } from '../../../frontend/src/schema/fieldTypes'
+import FieldControl from '../../../frontend/src/renderer/FieldControl.vue'
 
 describe('FieldControl', () => {
   it('renders an input field from registry metadata', () => {

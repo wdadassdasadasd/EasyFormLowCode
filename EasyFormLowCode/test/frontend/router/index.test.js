@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { createRouter, createMemoryHistory } from 'vue-router'
 
 // 模拟懒加载组件，避免实际导入 .vue 文件
-vi.mock('../views/Main.vue', () => ({ default: { name: 'Main', template: '<div>Main</div>' } }))
-vi.mock('../views/AppManage.vue', () => ({ default: { name: 'AppManage', template: '<div>AppManage</div>' } }))
-vi.mock('../views/PageDesigner.vue', () => ({ default: { name: 'PageDesigner', template: '<div>PageDesigner</div>' } }))
+vi.mock('../../../frontend/src/views/Main.vue', () => ({ default: { name: 'Main', template: '<div>Main</div>' } }))
+vi.mock('../../../frontend/src/views/AppManage.vue', () => ({ default: { name: 'AppManage', template: '<div>AppManage</div>' } }))
+vi.mock('../../../frontend/src/views/PageDesigner.vue', () => ({ default: { name: 'PageDesigner', template: '<div>PageDesigner</div>' } }))
 
 // 动态导入路由配置（使用与源文件相同的路由结构）
 function createTestRouter() {
@@ -13,18 +13,18 @@ function createTestRouter() {
     routes: [
       {
         path: '/',
-        component: () => import('../views/Main.vue'),
+        component: () => import('../../../frontend/src/views/Main.vue'),
         redirect: '/pagedesigner',
         children: [
           {
             path: 'appmanage',
             name: '项目管理',
-            component: () => import('../views/AppManage.vue'),
+            component: () => import('../../../frontend/src/views/AppManage.vue'),
           },
           {
             path: 'pagedesigner',
             name: '页面设计',
-            component: () => import('../views/PageDesigner.vue'),
+            component: () => import('../../../frontend/src/views/PageDesigner.vue'),
           },
         ],
       },

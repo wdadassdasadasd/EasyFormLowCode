@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createDroppedField } from './dropField'
+import { createDroppedField } from '../../../frontend/src/schema/dropField'
 
 describe('createDroppedField', () => {
   it.each(['input', 'select', 'date', 'switch'])('creates a valid %s field for drag drop', (type) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSchemaJson, buildVueSfc } from './codeExporter'
+import { buildSchemaJson, buildVueSfc } from '../../../frontend/src/utils/codeExporter'
 
 const schema = {
   id: 'user_manage',

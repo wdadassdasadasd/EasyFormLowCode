@@ -10,7 +10,7 @@ import {
   getFieldsByUsage,
   getPropertySetters,
   normalizeField,
-} from './fieldTypes'
+} from '../../../frontend/src/schema/fieldTypes'
 
 const OPEN_FIELD_TYPES = ['input', 'textarea', 'number', 'select', 'date', 'switch', 'radio']
 

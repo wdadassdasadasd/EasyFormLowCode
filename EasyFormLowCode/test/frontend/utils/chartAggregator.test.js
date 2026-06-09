@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { createFieldByType } from '../schema/fieldTypes'
-import { aggregateChart, buildDefaultCharts, buildMetricCards } from './chartAggregator'
+import { createFieldByType } from '../../../frontend/src/schema/fieldTypes'
+import { aggregateChart, buildDefaultCharts, buildMetricCards } from '../../../frontend/src/utils/chartAggregator'
 
 const fields = [
   createFieldByType('select', {
