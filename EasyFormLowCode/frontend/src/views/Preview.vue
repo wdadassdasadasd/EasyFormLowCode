@@ -107,47 +107,59 @@
 </template>
 
 <script setup>
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
+import { getPage } from '../api/pages'
+import { useRuntimeCrud } from '../composables/useRuntimeCrud'
+import { useSchemaModels } from '../composables/useSchemaModels'
+import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
-import {
-  buildFieldRules,
-  createFieldByType,
-  getFieldInitialValue,
-  getFieldsByUsage,
-  normalizeField,
-} from '../schema/fieldTypes'
+import { buildDemoRows, createDefaultPageSchema } from '../schema/defaultSchema'
+import { normalizeField } from '../schema/fieldTypes'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 
-const PAGE_ID = 'user_manage'
-const API_BASE = 'http://127.0.0.1:8000/api'
+const PAGE_ID = DEFAULT_PAGE_ID
 
 const statusText = ref('正在加载运行态页面...')
 const pageStatus = ref('draft')
-const recordsLoading = ref(false)
-const submitLoading = ref(false)
-const dialogVisible = ref(false)
-const dialogTitle = ref('新增数据')
-const dialogMode = ref('create')
-const editingRecordId = ref(null)
-const selectedRows = ref([])
-const searchModel = reactive({})
-const dialogForm = reactive({})
-const formErrors = reactive({})
-const pagination = reactive({
-  currentPage: 1,
-  pageSize: 10,
-  total: 0,
+const pageSchema = reactive(createDefaultPageSchema(PAGE_ID))
+const {
+  searchModel,
+  dialogForm,
+  formErrors,
+  searchableFields,
+  tableFields,
+  formFields,
+  syncModels,
+} = useSchemaModels(pageSchema)
+const {
+  recordsLoading,
+  submitLoading,
+  dialogVisible,
+  dialogTitle,
+  selectedRows,
+  recordRows,
+  pagination,
+  loadRecords,
+  resetSearch,
+  applySearch,
+  openCreateDialog,
+  openEditDialog,
+  openSelectedEditDialog,
+  deleteSelectedRows,
+  deleteRecord,
+  submitDialog,
+} = useRuntimeCrud({
+  pageId: PAGE_ID,
+  searchableFields,
+  formFields,
+  searchModel,
+  dialogForm,
+  formErrors,
+  fallbackRows: buildDemoRows,
 })
-const pageSchema = reactive(createDefaultSchema())
-const recordRows = ref([])
-
-const searchableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'search'))
-const tableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'table'))
-const formFields = computed(() => getFieldsByUsage(pageSchema.fields, 'form'))
 const metricCards = computed(() => buildMetricCards(recordRows.value, pageSchema.fields))
 const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
 
@@ -171,61 +183,8 @@ onMounted(async () => {
   await loadRecords()
 })
 
-function createDefaultSchema() {
-  return {
-    id: PAGE_ID,
-    title: '用户管理',
-    pageType: 'crud',
-    fields: [
-      createFieldByType('input', {
-        id: 'field_username',
-        label: '用户名',
-        prop: 'username',
-        placeholder: '请输入用户名',
-        required: true,
-      }),
-      createFieldByType('input', {
-        id: 'field_nickname',
-        label: '昵称',
-        prop: 'nickname',
-        placeholder: '请输入昵称',
-      }),
-      createFieldByType('select', {
-        id: 'field_role',
-        label: '用户角色',
-        prop: 'role',
-        options: [
-          { label: '管理员', value: 'admin' },
-          { label: '普通用户', value: 'user' },
-          { label: '访客', value: 'guest' },
-        ],
-      }),
-      createFieldByType('select', {
-        id: 'field_status',
-        label: '状态',
-        prop: 'status',
-        options: [
-          { label: '启用', value: 'enabled' },
-          { label: '停用', value: 'disabled' },
-        ],
-      }),
-      createFieldByType('date', {
-        id: 'field_created_at',
-        label: '创建时间',
-        prop: 'createdAt',
-        searchable: false,
-      }),
-    ],
-    charts: [
-      { id: 'recordMetric', type: 'metric', title: '记录总数', metric: 'count' },
-      { id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'status', metric: 'count' },
-      { id: 'roleBar', type: 'bar', title: '角色分布', dimension: 'role', metric: 'count' },
-    ],
-  }
-}
-
 function replaceSchema(nextSchema) {
-  const defaultSchema = createDefaultSchema()
+  const defaultSchema = createDefaultPageSchema(PAGE_ID)
   const fields = Array.isArray(nextSchema?.fields) && nextSchema.fields.length > 0 ? nextSchema.fields : defaultSchema.fields
 
   Object.assign(pageSchema, {
@@ -239,220 +198,15 @@ function replaceSchema(nextSchema) {
 
 async function loadSchema() {
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}`)
-
-    if (!response.ok) {
-      throw new Error('读取失败')
-    }
-
-    const result = await response.json()
+    const result = await getPage(PAGE_ID)
     replaceSchema(result.schema_json)
     pageStatus.value = result.status
     statusText.value = '已从后端加载 PageSchema'
   } catch (error) {
-    replaceSchema(createDefaultSchema())
+    replaceSchema(createDefaultPageSchema(PAGE_ID))
     pageStatus.value = 'draft'
     statusText.value = '后端未启动，当前使用演示 PageSchema'
   }
-}
-
-async function loadRecords() {
-  recordsLoading.value = true
-
-  try {
-    const params = new URLSearchParams({
-      page: String(pagination.currentPage),
-      pageSize: String(pagination.pageSize),
-    })
-
-    searchableFields.value.forEach((field) => {
-      const value = searchModel[field.prop]
-
-      if (value !== '' && value !== undefined && value !== null) {
-        params.set(field.prop, value)
-      }
-    })
-
-    const response = await fetch(`${API_BASE}/runtime/pages/${PAGE_ID}/records?${params.toString()}`)
-
-    if (!response.ok) {
-      throw new Error('读取 records 失败')
-    }
-
-    const result = await response.json()
-    recordRows.value = result.items.map((item) => ({ id: item.id, ...item.data }))
-    pagination.total = result.total
-  } catch (error) {
-    recordRows.value = buildDemoRows()
-    pagination.total = recordRows.value.length
-  } finally {
-    recordsLoading.value = false
-  }
-}
-
-function syncModels() {
-  syncObjectKeys(searchModel, searchableFields.value)
-  syncObjectKeys(dialogForm, formFields.value)
-  syncObjectKeys(formErrors, formFields.value, '')
-}
-
-function syncObjectKeys(target, fields, emptyValue) {
-  Object.keys(target).forEach((key) => {
-    if (!fields.some((field) => field.prop === key)) {
-      delete target[key]
-    }
-  })
-
-  fields.forEach((field) => {
-    if (!(field.prop in target)) {
-      target[field.prop] = emptyValue !== undefined ? emptyValue : getFieldInitialValue(field)
-    }
-  })
-}
-
-function resetSearch() {
-  searchableFields.value.forEach((field) => {
-    searchModel[field.prop] = ''
-  })
-  pagination.currentPage = 1
-  loadRecords()
-}
-
-function applySearch() {
-  pagination.currentPage = 1
-  loadRecords()
-}
-
-function openCreateDialog() {
-  dialogMode.value = 'create'
-  editingRecordId.value = null
-  dialogTitle.value = '新增数据'
-  clearFormErrors()
-  formFields.value.forEach((field) => {
-    dialogForm[field.prop] = getFieldInitialValue(field)
-  })
-  dialogVisible.value = true
-}
-
-function openEditDialog(row) {
-  dialogMode.value = 'edit'
-  editingRecordId.value = row.id
-  dialogTitle.value = '编辑数据'
-  clearFormErrors()
-  formFields.value.forEach((field) => {
-    dialogForm[field.prop] = row[field.prop] ?? getFieldInitialValue(field)
-  })
-  dialogVisible.value = true
-}
-
-function openSelectedEditDialog() {
-  if (selectedRows.value.length === 1) {
-    openEditDialog(selectedRows.value[0])
-  }
-}
-
-async function deleteSelectedRows() {
-  if (selectedRows.value.length === 0) {
-    return
-  }
-
-  await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 条数据吗？`, '删除确认', { type: 'warning' })
-  await Promise.all(selectedRows.value.map((row) => deleteRecord(row, false)))
-  selectedRows.value = []
-  ElMessage.success('删除成功')
-  await loadRecords()
-}
-
-async function deleteRecord(row, reload = true) {
-  if (reload) {
-    await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
-  }
-
-  const response = await fetch(`${API_BASE}/runtime/pages/${PAGE_ID}/records/${row.id}`, {
-    method: 'DELETE',
-  })
-
-  if (!response.ok) {
-    throw new Error('删除失败')
-  }
-
-  if (reload) {
-    ElMessage.success('删除成功')
-    await loadRecords()
-  }
-}
-
-async function submitDialog() {
-  clearFormErrors()
-
-  if (!validateDialogForm()) {
-    return
-  }
-
-  submitLoading.value = true
-
-  try {
-    const url =
-      dialogMode.value === 'edit'
-        ? `${API_BASE}/runtime/pages/${PAGE_ID}/records/${editingRecordId.value}`
-        : `${API_BASE}/runtime/pages/${PAGE_ID}/records`
-    const response = await fetch(url, {
-      method: dialogMode.value === 'edit' ? 'PUT' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ data: toPlainRecord(dialogForm) }),
-    })
-
-    if (!response.ok) {
-      throw new Error('提交失败')
-    }
-
-    dialogVisible.value = false
-    ElMessage.success(dialogMode.value === 'edit' ? '编辑成功' : '新增成功')
-    await loadRecords()
-  } catch (error) {
-    ElMessage.error('提交失败，请确认后端服务已启动')
-  } finally {
-    submitLoading.value = false
-  }
-}
-
-function validateDialogForm() {
-  let valid = true
-
-  formFields.value.forEach((field) => {
-    const failedRule = buildFieldRules(field).find((rule) => !rule.validator(dialogForm[field.prop]))
-
-    if (failedRule) {
-      formErrors[field.prop] = failedRule.message
-      valid = false
-    }
-  })
-
-  return valid
-}
-
-function clearFormErrors() {
-  Object.keys(formErrors).forEach((key) => {
-    formErrors[key] = ''
-  })
-}
-
-function toPlainRecord(source) {
-  return formFields.value.reduce((record, field) => {
-    record[field.prop] = source[field.prop]
-    return record
-  }, {})
-}
-
-function buildDemoRows() {
-  return [
-    { id: 1, username: 'admin', nickname: '系统管理员', role: 'admin', status: 'enabled', createdAt: '2026-05-01' },
-    { id: 2, username: 'zhangsan', nickname: '张三', role: 'user', status: 'enabled', createdAt: '2026-05-03' },
-    { id: 3, username: 'lisi', nickname: '李四', role: 'user', status: 'disabled', createdAt: '2026-05-08' },
-    { id: 4, username: 'wangwu', nickname: '王五', role: 'guest', status: 'enabled', createdAt: '2026-05-12' },
-  ]
 }
 </script>
 

@@ -442,17 +442,19 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import Draggable from 'vuedraggable'
 import { useRouter } from 'vue-router'
 
+import { getPage, publishPage, savePageSchema as savePageSchemaRequest } from '../api/pages'
+import { listPageVersions, restorePageVersion } from '../api/versions'
+import { useRuntimeCrud } from '../composables/useRuntimeCrud'
+import { useSchemaModels } from '../composables/useSchemaModels'
+import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
+import { buildDemoRows, createDefaultPageSchema } from '../schema/defaultSchema'
 import { createDroppedField } from '../schema/dropField'
 import {
   MATERIAL_FIELD_TYPES,
-  buildFieldRules,
-  createFieldByType,
   ensureUniqueProp,
-  getFieldInitialValue,
-  getFieldsByUsage,
   getPropertySetters,
   normalizeField,
   normalizeOptions,
@@ -461,39 +463,56 @@ import {
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
 
-const PAGE_ID = 'user_manage'
-const API_BASE = 'http://127.0.0.1:8000/api'
+const PAGE_ID = DEFAULT_PAGE_ID
 
 const emit = defineEmits(['editor-status-change'])
 const router = useRouter()
 const selectedFieldId = ref('')
 const selectedArea = ref('search')
 const isDraggingMaterial = ref(false)
-const dialogVisible = ref(false)
-const dialogTitle = ref('新增数据')
-const dialogMode = ref('create')
-const editingRecordId = ref(null)
-const recordsLoading = ref(false)
-const submitLoading = ref(false)
 const statusText = ref('正在加载页面配置...')
 const pageStatus = ref('draft')
 const editorStatus = ref('loading')
-const selectedRows = ref([])
 const versionDrawerVisible = ref(false)
 const versions = ref([])
 const selectedVersion = ref(null)
 const exportDialogVisible = ref(false)
-const searchModel = reactive({})
-const dialogForm = reactive({})
-const originalDialogData = reactive({})
-const formErrors = reactive({})
-const pagination = reactive({
-  currentPage: 1,
-  pageSize: 10,
-  total: 0,
+const pageSchema = reactive(createDefaultPageSchema(PAGE_ID))
+const {
+  searchModel,
+  dialogForm,
+  formErrors,
+  searchableFields,
+  tableFields,
+  formFields,
+  syncModels,
+} = useSchemaModels(pageSchema)
+const {
+  recordsLoading,
+  submitLoading,
+  dialogVisible,
+  dialogTitle,
+  selectedRows,
+  recordRows,
+  pagination,
+  loadRecords,
+  resetSearch,
+  applySearch,
+  openCreateDialog,
+  openEditDialog,
+  openSelectedEditDialog,
+  deleteSelectedRows,
+  deleteRecord,
+  submitDialog,
+} = useRuntimeCrud({
+  pageId: PAGE_ID,
+  searchableFields,
+  formFields,
+  searchModel,
+  dialogForm,
+  formErrors,
+  fallbackRows: buildDemoRows,
 })
-const pageSchema = reactive(createDefaultSchema())
-const recordRows = ref([])
 const materialFieldTypes = MATERIAL_FIELD_TYPES
 const dropTargets = reactive({
   search: [],
@@ -581,9 +600,6 @@ const editorStatusType = computed(() => {
 
   return typeMap[editorStatus.value] || 'warning'
 })
-const searchableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'search'))
-const tableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'table'))
-const formFields = computed(() => getFieldsByUsage(pageSchema.fields, 'form'))
 const metricCards = computed(() => buildMetricCards(recordRows.value, pageSchema.fields))
 const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
 
@@ -615,79 +631,8 @@ onMounted(async () => {
   await loadRecords()
 })
 
-function createDefaultSchema() {
-  return {
-    id: PAGE_ID,
-    title: '用户管理',
-    pageType: 'crud',
-    api: {
-      mode: 'runtime',
-      listUrl: `/api/runtime/pages/${PAGE_ID}/records`,
-      createUrl: `/api/runtime/pages/${PAGE_ID}/records`,
-      updateUrl: `/api/runtime/pages/${PAGE_ID}/records/:id`,
-      deleteUrl: `/api/runtime/pages/${PAGE_ID}/records/:id`,
-    },
-    fields: [
-      createFieldByType('input', {
-        id: 'field_username',
-        label: '用户名',
-        prop: 'username',
-        placeholder: '请输入用户名',
-        required: true,
-      }),
-      createFieldByType('input', {
-        id: 'field_nickname',
-        label: '昵称',
-        prop: 'nickname',
-        placeholder: '请输入昵称',
-      }),
-      createFieldByType('select', {
-        id: 'field_role',
-        label: '用户角色',
-        prop: 'role',
-        placeholder: '请选择角色',
-        options: [
-          { label: '管理员', value: 'admin' },
-          { label: '普通用户', value: 'user' },
-          { label: '访客', value: 'guest' },
-        ],
-      }),
-      createFieldByType('select', {
-        id: 'field_status',
-        label: '状态',
-        prop: 'status',
-        placeholder: '请选择状态',
-        options: [
-          { label: '启用', value: 'enabled' },
-          { label: '停用', value: 'disabled' },
-        ],
-      }),
-      createFieldByType('date', {
-        id: 'field_created_at',
-        label: '创建时间',
-        prop: 'createdAt',
-        searchable: false,
-      }),
-    ],
-    table: {
-      rowKey: 'id',
-      columns: [],
-      actions: ['edit', 'delete'],
-    },
-    formDialog: {
-      title: '编辑数据',
-      width: '600px',
-    },
-    charts: [
-      { id: 'recordMetric', type: 'metric', title: '记录总数', metric: 'count' },
-      { id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'status', metric: 'count' },
-      { id: 'roleBar', type: 'bar', title: '角色分布', dimension: 'role', metric: 'count' },
-    ],
-  }
-}
-
 function replaceSchema(nextSchema) {
-  const defaultSchema = createDefaultSchema()
+  const defaultSchema = createDefaultPageSchema(PAGE_ID)
   const rawFields = Array.isArray(nextSchema?.fields) && nextSchema.fields.length > 0 ? nextSchema.fields : defaultSchema.fields
   const normalizedFields = rawFields.map((field, index) => normalizeField(field, index + 1, rawFields))
 
@@ -703,77 +648,25 @@ function replaceSchema(nextSchema) {
 
 async function loadSchema() {
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}`)
-
-    if (!response.ok) {
-      throw new Error('读取失败')
-    }
-
-    const result = await response.json()
+    const result = await getPage(PAGE_ID)
     replaceSchema(result.schema_json)
     pageStatus.value = result.status
     setEditorStatus(result.status === 'published' ? 'published' : 'saved')
     statusText.value = '已从后端恢复页面配置'
   } catch (error) {
-    replaceSchema(createDefaultSchema())
+    replaceSchema(createDefaultPageSchema(PAGE_ID))
     pageStatus.value = 'draft'
     setEditorStatus('dirty')
     statusText.value = '后端未启动，当前使用前端演示配置'
   }
 }
 
-async function loadRecords() {
-  recordsLoading.value = true
-
-  try {
-    const params = new URLSearchParams({
-      page: String(pagination.currentPage),
-      pageSize: String(pagination.pageSize),
-    })
-
-    searchableFields.value.forEach((field) => {
-      const value = searchModel[field.prop]
-
-      if (value !== '' && value !== undefined && value !== null) {
-        params.set(field.prop, value)
-      }
-    })
-
-    const response = await fetch(`${API_BASE}/runtime/pages/${PAGE_ID}/records?${params.toString()}`)
-
-    if (!response.ok) {
-      throw new Error('读取 records 失败')
-    }
-
-    const result = await response.json()
-    recordRows.value = result.items.map((item) => ({ id: item.id, ...item.data }))
-    pagination.total = result.total
-  } catch (error) {
-    recordRows.value = buildDemoRows()
-    pagination.total = recordRows.value.length
-  } finally {
-    recordsLoading.value = false
-  }
-}
-
 async function saveSchema() {
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}/schema`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: pageSchema.title,
-        schema_json: toPlainSchema(),
-      }),
+    const result = await savePageSchemaRequest(PAGE_ID, {
+      name: pageSchema.title,
+      schema_json: toPlainSchema(),
     })
-
-    if (!response.ok) {
-      throw new Error('保存失败')
-    }
-
-    const result = await response.json()
     pageStatus.value = result.status
     setEditorStatus('saved')
     statusText.value = '页面配置已保存，并生成历史版本'
@@ -785,15 +678,7 @@ async function saveSchema() {
 
 async function publishSchema() {
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}/publish`, {
-      method: 'POST',
-    })
-
-    if (!response.ok) {
-      throw new Error('发布失败')
-    }
-
-    const result = await response.json()
+    const result = await publishPage(PAGE_ID)
     pageStatus.value = result.status
     setEditorStatus('published')
     statusText.value = '页面已发布，可进入运行预览'
@@ -958,174 +843,6 @@ function removeOption(index) {
   markSchemaDirty()
 }
 
-function syncModels() {
-  syncObjectKeys(searchModel, searchableFields.value)
-  syncObjectKeys(dialogForm, formFields.value)
-  syncObjectKeys(formErrors, formFields.value, '')
-}
-
-function syncObjectKeys(target, fields, emptyValue) {
-  Object.keys(target).forEach((key) => {
-    if (!fields.some((field) => field.prop === key)) {
-      delete target[key]
-    }
-  })
-
-  fields.forEach((field) => {
-    if (!(field.prop in target)) {
-      target[field.prop] = emptyValue !== undefined ? emptyValue : getFieldInitialValue(field)
-    }
-  })
-}
-
-function resetSearch() {
-  searchableFields.value.forEach((field) => {
-    searchModel[field.prop] = ''
-  })
-  pagination.currentPage = 1
-  loadRecords()
-}
-
-function applySearch() {
-  pagination.currentPage = 1
-  loadRecords()
-}
-
-function openCreateDialog() {
-  dialogMode.value = 'create'
-  editingRecordId.value = null
-  dialogTitle.value = '新增数据'
-  clearFormErrors()
-  clearObject(originalDialogData)
-  formFields.value.forEach((field) => {
-    dialogForm[field.prop] = getFieldInitialValue(field)
-  })
-  dialogVisible.value = true
-}
-
-function openEditDialog(row) {
-  dialogMode.value = 'edit'
-  editingRecordId.value = row.id
-  dialogTitle.value = '编辑数据'
-  clearFormErrors()
-  clearObject(originalDialogData)
-  formFields.value.forEach((field) => {
-    const value = row[field.prop] ?? getFieldInitialValue(field)
-    dialogForm[field.prop] = value
-    originalDialogData[field.prop] = value
-  })
-  dialogVisible.value = true
-}
-
-function openSelectedEditDialog() {
-  if (selectedRows.value.length === 1) {
-    openEditDialog(selectedRows.value[0])
-  }
-}
-
-async function deleteSelectedRows() {
-  if (selectedRows.value.length === 0) {
-    return
-  }
-
-  await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 条数据吗？`, '删除确认', { type: 'warning' })
-  await Promise.all(selectedRows.value.map((row) => deleteRecord(row, false)))
-  selectedRows.value = []
-  ElMessage.success('删除成功')
-  await loadRecords()
-}
-
-async function deleteRecord(row, reload = true) {
-  if (reload) {
-    await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
-  }
-
-  const response = await fetch(`${API_BASE}/runtime/pages/${PAGE_ID}/records/${row.id}`, {
-    method: 'DELETE',
-  })
-
-  if (!response.ok) {
-    throw new Error('删除失败')
-  }
-
-  if (reload) {
-    ElMessage.success('删除成功')
-    await loadRecords()
-  }
-}
-
-async function submitDialog() {
-  clearFormErrors()
-
-  if (!validateDialogForm()) {
-    return
-  }
-
-  submitLoading.value = true
-
-  try {
-    const url =
-      dialogMode.value === 'edit'
-        ? `${API_BASE}/runtime/pages/${PAGE_ID}/records/${editingRecordId.value}`
-        : `${API_BASE}/runtime/pages/${PAGE_ID}/records`
-    const response = await fetch(url, {
-      method: dialogMode.value === 'edit' ? 'PUT' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ data: toPlainRecord(dialogForm) }),
-    })
-
-    if (!response.ok) {
-      throw new Error('提交失败')
-    }
-
-    dialogVisible.value = false
-    ElMessage.success(dialogMode.value === 'edit' ? '编辑成功' : '新增成功')
-    await loadRecords()
-  } catch (error) {
-    ElMessage.error('提交失败，请确认后端服务已启动')
-  } finally {
-    submitLoading.value = false
-  }
-}
-
-function validateDialogForm() {
-  let valid = true
-
-  formFields.value.forEach((field) => {
-    const rules = buildFieldRules(field)
-    const value = dialogForm[field.prop]
-    const failedRule = rules.find((rule) => !rule.validator(value))
-
-    if (failedRule) {
-      formErrors[field.prop] = failedRule.message
-      valid = false
-    }
-  })
-
-  return valid
-}
-
-function clearFormErrors() {
-  Object.keys(formErrors).forEach((key) => {
-    formErrors[key] = ''
-  })
-}
-
-function clearObject(target) {
-  Object.keys(target).forEach((key) => {
-    delete target[key]
-  })
-}
-
-function toPlainRecord(source) {
-  return formFields.value.reduce((record, field) => {
-    record[field.prop] = source[field.prop]
-    return record
-  }, {})
-}
-
 function isFieldSelected(field) {
   return selectedFieldId.value === field.id
 }
@@ -1152,13 +869,7 @@ function exportSchema() {
 
 async function loadVersions() {
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}/versions`)
-
-    if (!response.ok) {
-      throw new Error('读取版本失败')
-    }
-
-    versions.value = await response.json()
+    versions.value = await listPageVersions(PAGE_ID)
   } catch (error) {
     versions.value = []
     ElMessage.error('读取版本失败，请确认后端服务已启动')
@@ -1169,15 +880,7 @@ async function restoreVersion(version) {
   await ElMessageBox.confirm(`确认回滚到版本 ${version.version_no} 吗？`, '版本回滚', { type: 'warning' })
 
   try {
-    const response = await fetch(`${API_BASE}/pages/${PAGE_ID}/versions/${version.id}/restore`, {
-      method: 'POST',
-    })
-
-    if (!response.ok) {
-      throw new Error('回滚失败')
-    }
-
-    const result = await response.json()
+    const result = await restorePageVersion(PAGE_ID, version.id)
     replaceSchema(result.schema_json)
     pageStatus.value = result.status
     setEditorStatus('saved')
@@ -1226,15 +929,6 @@ function formatDateTime(value) {
 
 function toPlainSchema() {
   return JSON.parse(JSON.stringify(pageSchema))
-}
-
-function buildDemoRows() {
-  return [
-    { id: 1, username: 'admin', nickname: '系统管理员', role: 'admin', status: 'enabled', createdAt: '2026-05-01' },
-    { id: 2, username: 'zhangsan', nickname: '张三', role: 'user', status: 'enabled', createdAt: '2026-05-03' },
-    { id: 3, username: 'lisi', nickname: '李四', role: 'user', status: 'disabled', createdAt: '2026-05-08' },
-    { id: 4, username: 'wangwu', nickname: '王五', role: 'guest', status: 'enabled', createdAt: '2026-05-12' },
-  ]
 }
 
 defineExpose({

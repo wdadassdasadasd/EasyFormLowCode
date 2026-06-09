@@ -20,22 +20,7 @@ def get_default_schema(page_id: str) -> dict[str, Any]:
             "updateUrl": f"/api/runtime/pages/{page_id}/records/:id",
             "deleteUrl": f"/api/runtime/pages/{page_id}/records/:id",
         },
-        "fields": [
-            {
-                "id": "field_username",
-                "label": "用户名",
-                "prop": "username",
-                "type": "input",
-                "required": False,
-                "searchable": True,
-                "tableVisible": True,
-                "formVisible": True,
-                "placeholder": "请输入用户名",
-                "defaultValue": "",
-                "maxLength": 50,
-                "options": [],
-            }
-        ],
+        "fields": [],
         "table": {
             "rowKey": "id",
             "columns": [],
@@ -47,6 +32,34 @@ def get_default_schema(page_id: str) -> dict[str, Any]:
         },
         "charts": [],
     }
+
+
+def normalize_page_schema(page_id: str, schema_json: dict[str, Any]) -> dict[str, Any]:
+    normalized = {
+        **get_default_schema(page_id),
+        **(schema_json or {}),
+    }
+
+    normalized["id"] = str(normalized.get("id") or page_id)
+    normalized["title"] = str(normalized.get("title") or "用户管理")
+    normalized["pageType"] = str(normalized.get("pageType") or "crud")
+
+    if not isinstance(normalized.get("api"), dict):
+        normalized["api"] = get_default_schema(page_id)["api"]
+
+    if not isinstance(normalized.get("fields"), list):
+        normalized["fields"] = []
+
+    if not isinstance(normalized.get("table"), dict):
+        normalized["table"] = get_default_schema(page_id)["table"]
+
+    if not isinstance(normalized.get("formDialog"), dict):
+        normalized["formDialog"] = get_default_schema(page_id)["formDialog"]
+
+    if not isinstance(normalized.get("charts"), list):
+        normalized["charts"] = []
+
+    return normalized
 
 
 def get_or_create_page(db: Session, page_id: str) -> Page:
@@ -105,11 +118,12 @@ def save_page_schema(
     schema_json: dict[str, Any],
 ) -> Page:
     page = get_or_create_page(db, page_id)
-    page.name = name or schema_json.get("title") or page.name
-    page.schema_json = json.dumps(schema_json, ensure_ascii=False)
+    normalized_schema = normalize_page_schema(page_id, schema_json)
+    page.name = name or normalized_schema.get("title") or page.name
+    page.schema_json = json.dumps(normalized_schema, ensure_ascii=False)
     page.status = "draft"
     db.add(page)
-    create_page_version(db, page, schema_json)
+    create_page_version(db, page, normalized_schema)
     db.commit()
     db.refresh(page)
     return page
