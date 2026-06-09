@@ -9,16 +9,26 @@
 
         <div v-for="group in materialGroups" :key="group.name" class="material-group">
           <div class="group-title">{{ group.name }}</div>
-          <button
-            v-for="fieldType in group.items"
-            :key="fieldType.type"
-            class="material-card"
-            type="button"
-            @click="addField(fieldType.type)"
+          <Draggable
+            :list="group.items"
+            item-key="type"
+            :group="materialDragGroup"
+            :sort="false"
+            :clone="cloneMaterialItem"
+            class="material-grid"
+            ghost-class="drag-ghost"
+            chosen-class="drag-chosen"
+            drag-class="drag-moving"
+            @start="handleMaterialDragStart"
+            @end="handleMaterialDragEnd"
           >
-            <el-icon><component :is="iconMap[fieldType.material.icon]" /></el-icon>
-            <span>{{ fieldType.label }}</span>
-          </button>
+            <template #item="{ element: fieldType }">
+              <button class="material-card" type="button" @click="addField(fieldType.type)">
+                <el-icon><component :is="iconMap[fieldType.material.icon]" /></el-icon>
+                <span>{{ fieldType.label }}</span>
+              </button>
+            </template>
+          </Draggable>
         </div>
       </section>
 
@@ -72,6 +82,23 @@
             <el-button type="primary" :loading="recordsLoading" @click.stop="applySearch">查询</el-button>
           </div>
         </el-form>
+        <Draggable
+          :list="dropTargets.search"
+          item-key="id"
+          :group="fieldDropGroup"
+          :sort="false"
+          class="drop-catcher"
+          :class="{ 'is-active': isDraggingMaterial, 'is-selected': selectedArea === 'search' }"
+          ghost-class="drop-ghost"
+          @change="handleDropChange('search', $event)"
+        >
+          <template #item="{ element }">
+            <div class="drop-preview">{{ element.label }}</div>
+          </template>
+          <template #footer>
+            <div class="drop-catcher-label">拖到这里添加到搜索表单</div>
+          </template>
+        </Draggable>
       </section>
 
       <section class="canvas-block table-block" :class="{ selected: selectedArea === 'table' }" @click="selectedArea = 'table'">
@@ -135,6 +162,61 @@
             :total="pagination.total"
           />
         </div>
+        <Draggable
+          :list="dropTargets.table"
+          item-key="id"
+          :group="fieldDropGroup"
+          :sort="false"
+          class="drop-catcher"
+          :class="{ 'is-active': isDraggingMaterial, 'is-selected': selectedArea === 'table' }"
+          ghost-class="drop-ghost"
+          @change="handleDropChange('table', $event)"
+        >
+          <template #item="{ element }">
+            <div class="drop-preview">{{ element.label }}</div>
+          </template>
+          <template #footer>
+            <div class="drop-catcher-label">拖到这里添加到数据表格</div>
+          </template>
+        </Draggable>
+      </section>
+
+      <section class="canvas-block form-block" :class="{ selected: selectedArea === 'form' }" @click="selectedArea = 'form'">
+        <div class="block-title">
+          <strong>弹窗表单</strong>
+          <span>{{ formFields.length }} 个字段</span>
+        </div>
+        <el-empty v-if="formFields.length === 0" description="拖拽字段到这里生成弹窗表单项" :image-size="58" />
+        <el-form v-else class="form-preview" label-position="top" :model="dialogForm">
+          <el-form-item
+            v-for="field in formFields"
+            :key="field.id"
+            :label="field.label"
+            :required="field.required"
+            class="field-target"
+            :class="{ active: isFieldSelected(field) }"
+            @click.stop="selectField(field.id)"
+          >
+            <FieldControl v-model="dialogForm[field.prop]" :field="field" mode="form" />
+          </el-form-item>
+        </el-form>
+        <Draggable
+          :list="dropTargets.form"
+          item-key="id"
+          :group="fieldDropGroup"
+          :sort="false"
+          class="drop-catcher"
+          :class="{ 'is-active': isDraggingMaterial, 'is-selected': selectedArea === 'form' }"
+          ghost-class="drop-ghost"
+          @change="handleDropChange('form', $event)"
+        >
+          <template #item="{ element }">
+            <div class="drop-preview">{{ element.label }}</div>
+          </template>
+          <template #footer>
+            <div class="drop-catcher-label">拖到这里添加到弹窗表单</div>
+          </template>
+        </Draggable>
       </section>
 
       <section class="metrics-grid" :class="{ selected: selectedArea === 'metrics' }" @click="selectedArea = 'metrics'">
@@ -363,6 +445,7 @@ import { useRouter } from 'vue-router'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
+import { createDroppedField } from '../schema/dropField'
 import {
   MATERIAL_FIELD_TYPES,
   buildFieldRules,
@@ -385,6 +468,7 @@ const emit = defineEmits(['editor-status-change'])
 const router = useRouter()
 const selectedFieldId = ref('')
 const selectedArea = ref('search')
+const isDraggingMaterial = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增数据')
 const dialogMode = ref('create')
@@ -411,6 +495,21 @@ const pagination = reactive({
 const pageSchema = reactive(createDefaultSchema())
 const recordRows = ref([])
 const materialFieldTypes = MATERIAL_FIELD_TYPES
+const dropTargets = reactive({
+  search: [],
+  table: [],
+  form: [],
+})
+const materialDragGroup = {
+  name: 'page-fields',
+  pull: 'clone',
+  put: false,
+}
+const fieldDropGroup = {
+  name: 'page-fields',
+  pull: false,
+  put: true,
+}
 
 const iconMap = {
   EditPen,
@@ -425,6 +524,7 @@ const iconMap = {
 const pageModules = [
   { key: 'search', label: '搜索表单', icon: Search },
   { key: 'table', label: '数据表格', icon: Grid },
+  { key: 'form', label: '弹窗表单', icon: Tickets },
   { key: 'metrics', label: '统计卡片', icon: DataAnalysis },
   { key: 'charts', label: '图表区域', icon: Histogram },
 ]
@@ -703,14 +803,47 @@ async function publishSchema() {
   }
 }
 
-function addField(type) {
-  const field = createFieldByType(type, {}, pageSchema.fields.length + 1)
-  field.prop = ensureUniqueProp(field.prop, field.id, pageSchema.fields)
+function addField(type, area = 'table') {
+  const field = createDroppedField(type, area, pageSchema.fields)
   pageSchema.fields.push(field)
   selectedFieldId.value = field.id
-  selectedArea.value = 'table'
+  selectedArea.value = area
   syncModels()
   markSchemaDirty()
+}
+
+function cloneMaterialItem(fieldType) {
+  return {
+    id: `material_${fieldType.type}_${Date.now()}`,
+    type: fieldType.type,
+    label: fieldType.label,
+  }
+}
+
+function handleMaterialDragStart() {
+  isDraggingMaterial.value = true
+}
+
+function handleMaterialDragEnd() {
+  isDraggingMaterial.value = false
+  clearDropTargets()
+}
+
+function handleDropChange(area, event) {
+  const dropped = event?.added?.element
+
+  if (!dropped) {
+    return
+  }
+
+  addField(dropped.type, area)
+  clearDropTargets()
+}
+
+function clearDropTargets() {
+  Object.values(dropTargets).forEach((items) => {
+    items.splice(0, items.length)
+  })
 }
 
 function selectField(fieldId) {
@@ -1170,17 +1303,20 @@ defineExpose({
 }
 
 .material-group {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
   margin-top: 12px;
 }
 
 .group-title {
-  grid-column: 1 / -1;
   color: #6b7280;
   font-size: 12px;
   font-weight: 700;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .material-card,
@@ -1217,6 +1353,19 @@ defineExpose({
   border-color: #93c5fd;
 }
 
+.drag-chosen {
+  border-color: #2563eb;
+  box-shadow: 0 8px 20px rgb(37 99 235 / 14%);
+}
+
+.drag-ghost,
+.drag-moving {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #60a5fa;
+  opacity: 0.86;
+}
+
 .canvas-panel {
   padding: 16px;
 }
@@ -1249,6 +1398,7 @@ defineExpose({
 .canvas-block,
 .metrics-grid,
 .chart-grid {
+  position: relative;
   border: 1px solid transparent;
   border-radius: 6px;
 }
@@ -1305,6 +1455,61 @@ defineExpose({
   overflow: hidden;
   margin-bottom: 14px;
   border-color: #e5e7eb;
+}
+
+.form-block {
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+.form-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin-top: 12px;
+}
+
+.drop-catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgb(239 246 255 / 88%);
+  border: 1px dashed #60a5fa;
+  border-radius: 6px;
+}
+
+.drop-catcher.is-active {
+  display: flex;
+}
+
+.drop-catcher.is-selected {
+  background: rgb(219 234 254 / 92%);
+}
+
+.drop-catcher-label,
+.drop-preview {
+  display: grid;
+  place-items: center;
+  min-width: 180px;
+  min-height: 44px;
+  padding: 0 16px;
+  background: #ffffff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgb(37 99 235 / 12%);
+}
+
+.drop-ghost {
+  opacity: 0.5;
 }
 
 .table-toolbar {
