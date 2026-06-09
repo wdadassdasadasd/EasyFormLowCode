@@ -25,7 +25,7 @@ const router = createRouter({
         },
         {
           path: 'preview',
-          name: '页面预览',
+          name: '运行预览',
           component: () => import('../views/Preview.vue'),
         },
         {

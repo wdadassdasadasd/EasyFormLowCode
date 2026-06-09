@@ -10,20 +10,27 @@ export function buildVueSfc(schema) {
   const searchableFields = getFieldsByUsage(normalizedSchema.fields, 'search')
   const tableFields = getFieldsByUsage(normalizedSchema.fields, 'table')
   const formFields = getFieldsByUsage(normalizedSchema.fields, 'form')
+  const charts = normalizedSchema.charts || []
   const searchModel = buildInitialModel(searchableFields, '')
   const dialogForm = buildInitialModel(formFields)
 
   return `<template>
   <section class="runtime-page">
-    <h1>${escapeHtml(title)}</h1>
+    <header class="runtime-header">
+      <div>
+        <span>PageSchema Runtime</span>
+        <h1>${escapeHtml(title)}</h1>
+      </div>
+      <el-button type="primary" @click="openCreateDialog">新增</el-button>
+    </header>
 
-    <el-form class="search-form" :model="searchModel" label-position="left">
+    <el-form class="search-form" :model="searchModel" label-position="top">
 ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
-      <el-button @click="resetSearch">重置</el-button>
-      <el-button type="primary" @click="loadRecords">查询</el-button>
+      <div class="search-actions">
+        <el-button @click="resetSearch">重置</el-button>
+        <el-button type="primary" @click="loadRecords">查询</el-button>
+      </div>
     </el-form>
-
-    <el-button type="primary" @click="openCreateDialog">新增</el-button>
 
     <el-table :data="rows" border>
 ${tableFields.map((field) => `      ${getFieldTypeConfig(field.type).exporter.table(field)}`).join('\n')}
@@ -35,8 +42,24 @@ ${tableFields.map((field) => `      ${getFieldTypeConfig(field.type).exporter.ta
       </el-table-column>
     </el-table>
 
+    <section class="metrics-grid">
+      <div v-for="metric in metricCards" :key="metric.id" class="metric-card">
+        <span>{{ metric.title }}</span>
+        <strong>{{ metric.value }}</strong>
+        <small>{{ metric.trend }}</small>
+      </div>
+    </section>
+
+    <section class="chart-grid">
+      <div v-for="chart in chartOptions" :key="chart.id" class="chart-card">
+        <strong>{{ chart.title }}</strong>
+        <v-chart v-if="!chart.empty" class="chart" :option="chart.option" autoresize />
+        <el-empty v-else description="暂无可统计数据" :image-size="64" />
+      </div>
+    </section>
+
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
-      <el-form :model="dialogForm" label-width="96px">
+      <el-form :model="dialogForm" label-position="top">
 ${formFields.map((field) => renderFormItem(field)).join('\n')}
       </el-form>
       <template #footer>
@@ -48,8 +71,15 @@ ${formFields.map((field) => renderFormItem(field)).join('\n')}
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { BarChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
 const API_BASE = 'http://127.0.0.1:8000/api'
 const PAGE_ID = '${escapeScriptString(normalizedSchema.id || 'user_manage')}'
@@ -60,6 +90,48 @@ const editingRecordId = ref(null)
 const searchModel = reactive(${JSON.stringify(searchModel, null, 2)})
 const dialogForm = reactive(${JSON.stringify(dialogForm, null, 2)})
 const formFields = ${JSON.stringify(formFields, null, 2)}
+const fields = ${JSON.stringify(normalizedSchema.fields, null, 2)}
+const charts = ${JSON.stringify(charts, null, 2)}
+
+const metricCards = computed(() => {
+  const total = rows.value.length
+  const enabled = rows.value.filter((row) => ['enabled', 'true', true, '启用'].includes(row.status ?? row.enabled)).length
+  return [
+    { id: 'total', title: '记录总数', value: total, trend: '当前数据集' },
+    { id: 'enabled', title: '启用记录', value: enabled, trend: total ? Math.round((enabled / total) * 100) + '% 占比' : '0% 占比' },
+  ]
+})
+
+const chartOptions = computed(() => {
+  return charts.map((chart) => {
+    const groups = rows.value.reduce((result, row) => {
+      const raw = row[chart.dimension]
+      const label = formatFieldValue(chart.dimension, raw)
+      result.set(label, (result.get(label) || 0) + 1)
+      return result
+    }, new Map())
+    const labels = Array.from(groups.keys())
+    const values = Array.from(groups.values())
+
+    return {
+      ...chart,
+      empty: labels.length === 0,
+      option: chart.type === 'bar'
+        ? {
+            tooltip: { trigger: 'axis' },
+            grid: { left: 8, right: 8, top: 24, bottom: 8, containLabel: true },
+            xAxis: { type: 'category', data: labels },
+            yAxis: { type: 'value', minInterval: 1 },
+            series: [{ type: 'bar', data: values }],
+          }
+        : {
+            tooltip: { trigger: 'item' },
+            legend: { bottom: 0 },
+            series: [{ type: 'pie', radius: ['42%', '68%'], data: labels.map((label, index) => ({ name: label, value: values[index] })) }],
+          },
+    }
+  }).filter((chart) => chart.type !== 'metric')
+})
 
 async function loadRecords() {
   const params = new URLSearchParams({ page: '1', pageSize: '10' })
@@ -140,19 +212,92 @@ function formatOptionValue(value, options) {
   return option?.label ?? value ?? ''
 }
 
+function formatSwitchValue(value, activeText = '是', inactiveText = '否') {
+  if ([true, 'true', 'enabled', 'yes'].includes(value)) return activeText
+  if ([false, 'false', 'disabled', 'no'].includes(value)) return inactiveText
+  return value ?? ''
+}
+
+function formatFieldValue(prop, value) {
+  const field = fields.find((item) => item.prop === prop)
+  const option = field?.options?.find((item) => String(item.value) === String(value))
+  return option?.label || value || '未填写'
+}
+
 loadRecords()
 </script>
 
 <style scoped>
 .runtime-page {
   padding: 24px;
+  color: #111827;
+}
+
+.runtime-header,
+.search-form,
+.metrics-grid,
+.chart-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-header {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.runtime-header h1 {
+  margin: 4px 0 0;
+}
+
+.runtime-header span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .search-form {
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) 132px;
+  align-items: end;
+  margin: 16px 0;
+}
+
+.search-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.metric-card,
+.chart-card {
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.metric-card span,
+.metric-card strong,
+.metric-card small {
+  display: block;
+}
+
+.metric-card strong {
+  margin-top: 8px;
+  font-size: 28px;
+}
+
+.chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.chart {
+  width: 100%;
+  height: 220px;
 }
 </style>
 `

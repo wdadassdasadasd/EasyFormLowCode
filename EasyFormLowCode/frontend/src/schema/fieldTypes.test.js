@@ -39,12 +39,12 @@ describe('fieldTypes registry', () => {
     expect(MATERIAL_FIELD_TYPES.map((item) => item.type)).not.toContain('upload')
   })
 
-  it('creates and normalizes fields through the registry', () => {
+  it('creates readable Chinese defaults and normalizes fields through the registry', () => {
     const field = createFieldByType('select', { label: '状态', prop: 'status' }, 2)
 
     expect(field.type).toBe('select')
     expect(field.label).toBe('状态')
-    expect(field.options.length).toBeGreaterThan(0)
+    expect(field.options.map((option) => option.label)).toEqual(['启用', '停用'])
   })
 
   it('falls back unknown field types to input without dropping field data', () => {
@@ -56,14 +56,15 @@ describe('fieldTypes registry', () => {
     expect(field.customKey).toBe('kept')
   })
 
-  it('filters fields by usage flags', () => {
+  it('filters fields by usage flags and preserves field order', () => {
     const fields = [
       createFieldByType('input', { prop: 'name', searchable: true, tableVisible: false }),
       createFieldByType('number', { prop: 'age', searchable: false, tableVisible: true }),
+      createFieldByType('select', { prop: 'status', searchable: true, tableVisible: true }),
     ]
 
-    expect(getFieldsByUsage(fields, 'search').map((field) => field.prop)).toEqual(['name'])
-    expect(getFieldsByUsage(fields, 'table').map((field) => field.prop)).toEqual(['age'])
+    expect(getFieldsByUsage(fields, 'search').map((field) => field.prop)).toEqual(['name', 'status'])
+    expect(getFieldsByUsage(fields, 'table').map((field) => field.prop)).toEqual(['age', 'status'])
   })
 
   it('builds validation rules and initial values from field definitions', () => {
@@ -76,10 +77,11 @@ describe('fieldTypes registry', () => {
     expect(getFieldInitialValue(createFieldByType('switch'))).toBe(false)
   })
 
-  it('exposes property setters from the selected field type', () => {
+  it('exposes grouped property setters from the selected field type', () => {
     const setters = getPropertySetters(createFieldByType('radio'))
 
     expect(setters.map((setter) => setter.prop)).toContain('options')
+    expect(setters.every((setter) => setter.group)).toBe(true)
     expect(getFieldTypeConfig('missing').type).toBe('input')
   })
 })

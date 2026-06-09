@@ -94,6 +94,10 @@ const schema = {
       formVisible: false,
     },
   ],
+  charts: [
+    { id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'role', metric: 'count' },
+    { id: 'roleBar', type: 'bar', title: '角色分布', dimension: 'role', metric: 'count' },
+  ],
 }
 
 describe('codeExporter', () => {
@@ -104,11 +108,14 @@ describe('codeExporter', () => {
     expect(JSON.parse(result).fields).toHaveLength(8)
   })
 
-  it('exports a Vue SFC from all visible field types', () => {
+  it('exports a Vue SFC from all visible field types and charts', () => {
     const result = buildVueSfc(schema)
 
     expect(result).toContain('<template>')
     expect(result).toContain('用户管理')
+    expect(result).toContain('metrics-grid')
+    expect(result).toContain('chart-grid')
+    expect(result).toContain('vue-echarts')
     expect(result).toContain('v-model="dialogForm.username"')
     expect(result).toContain('type="textarea"')
     expect(result).toContain('<el-input-number v-model="searchModel.age"')
