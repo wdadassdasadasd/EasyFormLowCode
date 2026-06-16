@@ -1,9 +1,10 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { reactive, ref } from 'vue'
+import { reactive, ref, unref } from 'vue'
 
 import {
   createRuntimeRecord,
   deleteRuntimeRecord,
+  getRuntimeStats,
   listRuntimeRecords,
   updateRuntimeRecord,
 } from '../api/runtime'
@@ -26,6 +27,9 @@ export function useRuntimeCrud({
   const editingRecordId = ref(null)
   const selectedRows = ref([])
   const recordRows = ref([])
+  const statsRows = ref([])
+  const runtimeError = ref('')
+  const isOffline = ref(false)
   const pagination = reactive({
     currentPage: 1,
     pageSize: 10,
@@ -34,18 +38,12 @@ export function useRuntimeCrud({
 
   async function loadRecords() {
     recordsLoading.value = true
+    runtimeError.value = ''
+    isOffline.value = false
 
     try {
-      const filters = searchableFields.value.reduce((result, field) => {
-        const value = searchModel[field.prop]
-
-        if (value !== '' && value !== undefined && value !== null) {
-          result[field.prop] = value
-        }
-
-        return result
-      }, {})
-      const result = await listRuntimeRecords(pageId, {
+      const filters = buildFilters()
+      const result = await listRuntimeRecords(unref(pageId), {
         page: pagination.currentPage,
         pageSize: pagination.pageSize,
         filters,
@@ -53,12 +51,22 @@ export function useRuntimeCrud({
 
       recordRows.value = result.items.map((item) => ({ id: item.id, ...item.data }))
       pagination.total = result.total
+      pagination.currentPage = result.page
+      await loadStats(filters)
     } catch (error) {
       recordRows.value = fallbackRows()
+      statsRows.value = recordRows.value
       pagination.total = recordRows.value.length
+      runtimeError.value = error?.message || 'Runtime data request failed'
+      isOffline.value = true
     } finally {
       recordsLoading.value = false
     }
+  }
+
+  async function loadStats(filters = buildFilters()) {
+    const result = await getRuntimeStats(unref(pageId), { filters })
+    statsRows.value = result.records || []
   }
 
   function resetSearch() {
@@ -109,6 +117,9 @@ export function useRuntimeCrud({
 
     await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 条数据吗？`, '删除确认', { type: 'warning' })
     await Promise.all(selectedRows.value.map((row) => deleteRecord(row, false)))
+    if (selectedRows.value.length >= recordRows.value.length && pagination.currentPage > 1) {
+      pagination.currentPage -= 1
+    }
     selectedRows.value = []
     ElMessage.success('删除成功')
     await loadRecords()
@@ -119,7 +130,7 @@ export function useRuntimeCrud({
       await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
     }
 
-    await deleteRuntimeRecord(pageId, row.id)
+    await deleteRuntimeRecord(unref(pageId), row.id)
 
     if (reload) {
       ElMessage.success('删除成功')
@@ -138,9 +149,9 @@ export function useRuntimeCrud({
 
     try {
       if (dialogMode.value === 'edit') {
-        await updateRuntimeRecord(pageId, editingRecordId.value, toPlainRecord(dialogForm))
+        await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm))
       } else {
-        await createRuntimeRecord(pageId, toPlainRecord(dialogForm))
+        await createRuntimeRecord(unref(pageId), toPlainRecord(dialogForm))
       }
 
       dialogVisible.value = false
@@ -183,6 +194,18 @@ export function useRuntimeCrud({
     }, {})
   }
 
+  function buildFilters() {
+    return searchableFields.value.reduce((result, field) => {
+      const value = searchModel[field.prop]
+
+      if (value !== '' && value !== undefined && value !== null) {
+        result[field.prop] = value
+      }
+
+      return result
+    }, {})
+  }
+
   return {
     recordsLoading,
     submitLoading,
@@ -192,8 +215,12 @@ export function useRuntimeCrud({
     editingRecordId,
     selectedRows,
     recordRows,
+    statsRows,
+    runtimeError,
+    isOffline,
     pagination,
     loadRecords,
+    loadStats,
     resetSearch,
     applySearch,
     openCreateDialog,

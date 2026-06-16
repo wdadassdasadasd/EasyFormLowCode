@@ -10,6 +10,12 @@ export function listRuntimeRecords(pageId, { page, pageSize, filters = {} } = {}
   })
 }
 
+export function getRuntimeStats(pageId, { filters = {} } = {}) {
+  return apiRequest(`/runtime/pages/${pageId}/stats`, {
+    params: filters,
+  })
+}
+
 export function createRuntimeRecord(pageId, data) {
   return apiRequest(`/runtime/pages/${pageId}/records`, {
     method: 'POST',

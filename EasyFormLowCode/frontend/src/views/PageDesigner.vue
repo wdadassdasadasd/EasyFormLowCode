@@ -60,6 +60,16 @@
       </div>
     </div>
 
+      <el-alert
+        v-if="isOffline || runtimeError"
+        class="runtime-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="后端不可用，当前显示演示数据"
+        :description="runtimeError"
+      />
+
       <section class="canvas-block search-block" :class="{ selected: selectedArea === 'search' }" @click="selectedArea = 'search'">
         <div class="block-title">
           <strong>搜索表单</strong>
@@ -228,7 +238,7 @@
       </section>
 
       <section class="chart-grid" :class="{ selected: selectedArea === 'charts' }" @click="selectedArea = 'charts'">
-        <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="recordRows" :fields="pageSchema.fields" />
+        <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
       </section>
     </section>
 
@@ -440,17 +450,18 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import Draggable from 'vuedraggable'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
-import { getPage, publishPage, savePageSchema as savePageSchemaRequest } from '../api/pages'
+import { publishPage, savePageSchema as savePageSchemaRequest } from '../api/pages'
 import { listPageVersions, restorePageVersion } from '../api/versions'
+import { usePageSchema } from '../composables/usePageSchema'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
-import { buildDemoRows, createDefaultPageSchema } from '../schema/defaultSchema'
+import { buildDemoRows } from '../schema/defaultSchema'
 import { createDroppedField } from '../schema/dropField'
 import {
   MATERIAL_FIELD_TYPES,
@@ -463,21 +474,33 @@ import {
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
 
-const PAGE_ID = DEFAULT_PAGE_ID
-
 const emit = defineEmits(['editor-status-change'])
+const route = useRoute()
 const router = useRouter()
 const selectedFieldId = ref('')
 const selectedArea = ref('search')
 const isDraggingMaterial = ref(false)
 const statusText = ref('正在加载页面配置...')
-const pageStatus = ref('draft')
 const editorStatus = ref('loading')
 const versionDrawerVisible = ref(false)
 const versions = ref([])
 const selectedVersion = ref(null)
 const exportDialogVisible = ref(false)
-const pageSchema = reactive(createDefaultPageSchema(PAGE_ID))
+const pageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
+let syncSchemaModels = () => {}
+const {
+  pageSchema,
+  pageStatus,
+  replaceSchema,
+  loadSchema: loadPageSchema,
+  toPlainSchema,
+} = usePageSchema({
+  pageId,
+  syncModels: () => syncSchemaModels(),
+  afterReplace: (schema) => {
+    selectedFieldId.value = schema.fields[0]?.id || ''
+  },
+})
 const {
   searchModel,
   dialogForm,
@@ -487,6 +510,7 @@ const {
   formFields,
   syncModels,
 } = useSchemaModels(pageSchema)
+syncSchemaModels = syncModels
 const {
   recordsLoading,
   submitLoading,
@@ -494,6 +518,9 @@ const {
   dialogTitle,
   selectedRows,
   recordRows,
+  statsRows,
+  runtimeError,
+  isOffline,
   pagination,
   loadRecords,
   resetSearch,
@@ -505,7 +532,7 @@ const {
   deleteRecord,
   submitDialog,
 } = useRuntimeCrud({
-  pageId: PAGE_ID,
+  pageId,
   searchableFields,
   formFields,
   searchModel,
@@ -600,7 +627,7 @@ const editorStatusType = computed(() => {
 
   return typeMap[editorStatus.value] || 'warning'
 })
-const metricCards = computed(() => buildMetricCards(recordRows.value, pageSchema.fields))
+const metricCards = computed(() => buildMetricCards(statsRows.value, pageSchema.fields))
 const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
 
 watch(
@@ -626,44 +653,26 @@ watch(
   { deep: true },
 )
 
+watch(pageId, async () => {
+  setEditorStatus('loading')
+  await loadSchema()
+  await loadRecords()
+})
+
 onMounted(async () => {
   await loadSchema()
   await loadRecords()
 })
 
-function replaceSchema(nextSchema) {
-  const defaultSchema = createDefaultPageSchema(PAGE_ID)
-  const rawFields = Array.isArray(nextSchema?.fields) && nextSchema.fields.length > 0 ? nextSchema.fields : defaultSchema.fields
-  const normalizedFields = rawFields.map((field, index) => normalizeField(field, index + 1, rawFields))
-
-  Object.assign(pageSchema, {
-    ...defaultSchema,
-    ...nextSchema,
-    fields: normalizedFields,
-    charts: Array.isArray(nextSchema?.charts) && nextSchema.charts.length > 0 ? nextSchema.charts : defaultSchema.charts,
-  })
-  selectedFieldId.value = pageSchema.fields[0]?.id || ''
-  syncModels()
-}
-
 async function loadSchema() {
-  try {
-    const result = await getPage(PAGE_ID)
-    replaceSchema(result.schema_json)
-    pageStatus.value = result.status
-    setEditorStatus(result.status === 'published' ? 'published' : 'saved')
-    statusText.value = '已从后端恢复页面配置'
-  } catch (error) {
-    replaceSchema(createDefaultPageSchema(PAGE_ID))
-    pageStatus.value = 'draft'
-    setEditorStatus('dirty')
-    statusText.value = '后端未启动，当前使用前端演示配置'
-  }
+  const result = await loadPageSchema()
+  setEditorStatus(result?.status === 'published' ? 'published' : result ? 'saved' : 'dirty')
+  statusText.value = result ? '已从后端恢复页面配置' : '后端不可用，当前使用前端演示配置'
 }
 
 async function saveSchema() {
   try {
-    const result = await savePageSchemaRequest(PAGE_ID, {
+    const result = await savePageSchemaRequest(pageId.value, {
       name: pageSchema.title,
       schema_json: toPlainSchema(),
     })
@@ -678,7 +687,7 @@ async function saveSchema() {
 
 async function publishSchema() {
   try {
-    const result = await publishPage(PAGE_ID)
+    const result = await publishPage(pageId.value)
     pageStatus.value = result.status
     setEditorStatus('published')
     statusText.value = '页面已发布，可进入运行预览'
@@ -856,7 +865,7 @@ function setEditorStatus(status) {
 }
 
 function previewPage() {
-  router.push('/preview')
+  router.push({ path: '/preview', query: { pageId: pageId.value, mode: 'draft' } })
 }
 
 function showVersion() {
@@ -869,7 +878,7 @@ function exportSchema() {
 
 async function loadVersions() {
   try {
-    versions.value = await listPageVersions(PAGE_ID)
+    versions.value = await listPageVersions(pageId.value)
   } catch (error) {
     versions.value = []
     ElMessage.error('读取版本失败，请确认后端服务已启动')
@@ -880,7 +889,7 @@ async function restoreVersion(version) {
   await ElMessageBox.confirm(`确认回滚到版本 ${version.version_no} 吗？`, '版本回滚', { type: 'warning' })
 
   try {
-    const result = await restorePageVersion(PAGE_ID, version.id)
+    const result = await restorePageVersion(pageId.value, version.id)
     replaceSchema(result.schema_json)
     pageStatus.value = result.status
     setEditorStatus('saved')
@@ -925,10 +934,6 @@ function emitEditorStatus() {
 
 function formatDateTime(value) {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
-}
-
-function toPlainSchema() {
-  return JSON.parse(JSON.stringify(pageSchema))
 }
 
 defineExpose({
@@ -1068,6 +1073,10 @@ defineExpose({
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.runtime-alert {
   margin-bottom: 14px;
 }
 

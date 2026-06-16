@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.page_schema import RuntimeRecordListResponse, RuntimeRecordPayload, RuntimeRecordResponse
+from app.schemas.page_schema import RuntimeRecordListResponse, RuntimeRecordPayload, RuntimeRecordResponse, RuntimeStatsResponse
 from app.services.page_service import (
     create_page_record,
     delete_page_record,
     list_page_records,
+    list_page_record_stats,
     record_to_response,
     update_page_record,
 )
@@ -31,6 +32,23 @@ def get_runtime_records(
         if key not in {"page", "pageSize"}
     }
     return list_page_records(db, page_id, filters, page, pageSize)
+
+
+@router.get(
+    "/{page_id}/stats",
+    response_model=RuntimeStatsResponse,
+)
+def get_runtime_stats(
+    page_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    filters = {
+        key: value
+        for key, value in request.query_params.items()
+        if key not in {"page", "pageSize"}
+    }
+    return list_page_record_stats(db, page_id, filters)
 
 
 @router.post(

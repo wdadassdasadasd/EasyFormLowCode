@@ -10,7 +10,7 @@
       </div>
 
       <nav class="menu-list">
-        <router-link v-for="item in menus" :key="item.path" class="menu-item" :to="item.path">
+        <router-link v-for="item in menus" :key="item.path" class="menu-item" :to="{ path: item.path, query: { pageId: selectedPageId } }">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
         </router-link>
@@ -23,8 +23,8 @@
           <el-select model-value="demo" class="selector" size="large">
             <el-option label="演示项目" value="demo" />
           </el-select>
-          <el-select model-value="user_manage" class="selector" size="large">
-            <el-option label="用户管理" value="user_manage" />
+          <el-select :model-value="selectedPageId" class="selector" size="large" @change="changePage">
+            <el-option v-for="page in pages" :key="page.page_id" :label="page.name" :value="page.page_id" />
           </el-select>
         </div>
 
@@ -68,12 +68,16 @@ import {
   View,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
+import { listPages } from '../api/pages'
+import { DEFAULT_PAGE_ID } from '../config/appConfig'
 
 const componentRef = ref(null)
 const route = useRoute()
 const router = useRouter()
+const pages = ref([{ page_id: DEFAULT_PAGE_ID, name: '用户管理', status: 'draft' }])
 const designerStatus = ref({
   text: '正在加载',
   type: 'info',
@@ -81,6 +85,7 @@ const designerStatus = ref({
 
 const isDesignerRoute = computed(() => route.path === '/pagedesigner')
 const isPreviewRoute = computed(() => route.path === '/preview')
+const selectedPageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
 
 const menus = [
   { label: '工作台', path: '/workbench', icon: House },
@@ -89,6 +94,27 @@ const menus = [
   { label: '运行预览', path: '/preview', icon: DataBoard },
   { label: '系统设置', path: '/setting', icon: Setting },
 ]
+
+onMounted(loadPages)
+
+async function loadPages() {
+  try {
+    const result = await listPages()
+    pages.value = result.length ? result : pages.value
+  } catch (error) {
+    ElMessage.warning('页面列表加载失败，当前使用默认页面')
+  }
+}
+
+function changePage(nextPageId) {
+  router.push({
+    path: route.path,
+    query: {
+      ...route.query,
+      pageId: nextPageId,
+    },
+  })
+}
 
 function callDesigner(methodName) {
   const method = componentRef.value?.[methodName]
@@ -109,7 +135,7 @@ function handleEditorStatusChange(status) {
 }
 
 function goDesigner() {
-  router.push('/pagedesigner')
+  router.push({ path: '/pagedesigner', query: { pageId: selectedPageId.value } })
 }
 </script>
 

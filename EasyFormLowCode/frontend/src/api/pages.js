@@ -1,7 +1,15 @@
 import { apiRequest } from './httpClient'
 
+export function listPages() {
+  return apiRequest('/pages')
+}
+
 export function getPage(pageId) {
   return apiRequest(`/pages/${pageId}`)
+}
+
+export function getPublishedPage(pageId) {
+  return apiRequest(`/pages/${pageId}/published`)
 }
 
 export function savePageSchema(pageId, payload) {

@@ -11,6 +11,16 @@
       </el-tag>
     </div>
 
+    <el-alert
+      v-if="isOffline || runtimeError"
+      class="runtime-alert"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="后端不可用，当前显示演示数据"
+      :description="runtimeError"
+    />
+
     <section class="search-card">
       <div class="section-title">
         <strong>搜索表单</strong>
@@ -81,7 +91,7 @@
     </section>
 
     <section class="chart-grid">
-      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="recordRows" :fields="pageSchema.fields" />
+      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
     </section>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
@@ -107,24 +117,32 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
-import { getPage } from '../api/pages'
+import { usePageSchema } from '../composables/usePageSchema'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
-import { buildDemoRows, createDefaultPageSchema } from '../schema/defaultSchema'
-import { normalizeField } from '../schema/fieldTypes'
+import { buildDemoRows } from '../schema/defaultSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 
-const PAGE_ID = DEFAULT_PAGE_ID
-
+const route = useRoute()
+const pageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
+const isDraftPreview = computed(() => route.query.mode === 'draft')
 const statusText = ref('正在加载运行态页面...')
-const pageStatus = ref('draft')
-const pageSchema = reactive(createDefaultPageSchema(PAGE_ID))
+let syncSchemaModels = () => {}
+const {
+  pageSchema,
+  pageStatus,
+  loadSchema: loadPageSchema,
+} = usePageSchema({
+  pageId,
+  syncModels: () => syncSchemaModels(),
+})
 const {
   searchModel,
   dialogForm,
@@ -134,6 +152,7 @@ const {
   formFields,
   syncModels,
 } = useSchemaModels(pageSchema)
+syncSchemaModels = syncModels
 const {
   recordsLoading,
   submitLoading,
@@ -141,6 +160,9 @@ const {
   dialogTitle,
   selectedRows,
   recordRows,
+  statsRows,
+  runtimeError,
+  isOffline,
   pagination,
   loadRecords,
   resetSearch,
@@ -152,7 +174,7 @@ const {
   deleteRecord,
   submitDialog,
 } = useRuntimeCrud({
-  pageId: PAGE_ID,
+  pageId,
   searchableFields,
   formFields,
   searchModel,
@@ -160,7 +182,7 @@ const {
   formErrors,
   fallbackRows: buildDemoRows,
 })
-const metricCards = computed(() => buildMetricCards(recordRows.value, pageSchema.fields))
+const metricCards = computed(() => buildMetricCards(statsRows.value, pageSchema.fields))
 const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
 
 watch(
@@ -178,35 +200,23 @@ watch(
   { deep: true },
 )
 
+watch([pageId, isDraftPreview], async () => {
+  await loadSchema()
+  await loadRecords()
+})
+
 onMounted(async () => {
   await loadSchema()
   await loadRecords()
 })
 
-function replaceSchema(nextSchema) {
-  const defaultSchema = createDefaultPageSchema(PAGE_ID)
-  const fields = Array.isArray(nextSchema?.fields) && nextSchema.fields.length > 0 ? nextSchema.fields : defaultSchema.fields
-
-  Object.assign(pageSchema, {
-    ...defaultSchema,
-    ...nextSchema,
-    fields: fields.map((field, index) => normalizeField(field, index + 1, fields)),
-    charts: Array.isArray(nextSchema?.charts) && nextSchema.charts.length > 0 ? nextSchema.charts : defaultSchema.charts,
-  })
-  syncModels()
-}
-
 async function loadSchema() {
-  try {
-    const result = await getPage(PAGE_ID)
-    replaceSchema(result.schema_json)
-    pageStatus.value = result.status
-    statusText.value = '已从后端加载 PageSchema'
-  } catch (error) {
-    replaceSchema(createDefaultPageSchema(PAGE_ID))
-    pageStatus.value = 'draft'
-    statusText.value = '后端未启动，当前使用演示 PageSchema'
-  }
+  const result = await loadPageSchema({ published: !isDraftPreview.value })
+  statusText.value = result
+    ? isDraftPreview.value
+      ? '已加载草稿 PageSchema'
+      : '已加载已发布 PageSchema'
+    : '后端不可用，当前使用演示 PageSchema'
 }
 </script>
 
@@ -231,6 +241,10 @@ async function loadSchema() {
 
 .runtime-header {
   margin-bottom: 16px;
+}
+
+.runtime-alert {
+  margin-bottom: 14px;
 }
 
 .runtime-header span {

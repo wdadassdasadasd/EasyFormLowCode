@@ -19,6 +19,14 @@ class PageSchemaResponse(BaseModel):
     schema_data: dict[str, Any] = Field(alias="schema_json")
 
 
+class PageSummaryResponse(BaseModel):
+    page_id: str
+    name: str
+    status: str
+    has_published: bool
+    updated_at: str
+
+
 class RuntimeRecordPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
@@ -35,6 +43,11 @@ class RuntimeRecordListResponse(BaseModel):
     total: int
     page: int
     pageSize: int
+
+
+class RuntimeStatsResponse(BaseModel):
+    records: list[dict[str, Any]]
+    total: int
 
 
 class PageVersionResponse(BaseModel):

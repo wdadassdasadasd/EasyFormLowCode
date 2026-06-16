@@ -89,6 +89,34 @@ def page_to_response(page: Page) -> dict[str, Any]:
     }
 
 
+def page_to_published_response(page: Page) -> dict[str, Any]:
+    schema_json = page.published_schema_json or page.schema_json
+    return {
+        "page_id": page.page_key,
+        "name": page.name,
+        "status": "published" if page.published_schema_json else page.status,
+        "schema_json": json.loads(schema_json),
+    }
+
+
+def list_pages(db: Session) -> list[dict[str, Any]]:
+    pages = db.query(Page).order_by(Page.updated_at.desc()).all()
+
+    if not pages:
+        pages = [get_or_create_page(db, "user_manage")]
+
+    return [
+        {
+            "page_id": page.page_key,
+            "name": page.name,
+            "status": page.status,
+            "has_published": bool(page.published_schema_json),
+            "updated_at": page.updated_at.isoformat(),
+        }
+        for page in pages
+    ]
+
+
 def create_page_version(
     db: Session,
     page: Page,
@@ -131,6 +159,7 @@ def save_page_schema(
 
 def publish_page(db: Session, page_id: str) -> Page:
     page = get_or_create_page(db, page_id)
+    page.published_schema_json = page.schema_json
     page.status = "published"
     db.add(page)
     db.commit()
@@ -155,39 +184,95 @@ def list_page_records(
     page_size: int,
 ) -> dict[str, Any]:
     page_obj = get_or_create_page(db, page_id)
+    safe_page = max(page, 1)
+    safe_page_size = max(min(page_size, 100), 1)
+    normalized_filters = normalize_record_filters(page_obj, filters)
+
+    query = db.query(PageRecord).filter(PageRecord.page_id == page_obj.id)
+
+    if normalized_filters:
+        records = query.order_by(PageRecord.id.desc()).all()
+        matched_records = [record for record in records if record_matches_filters(record, normalized_filters)]
+        total = len(matched_records)
+        max_page = max((total + safe_page_size - 1) // safe_page_size, 1)
+        safe_page = min(safe_page, max_page)
+        start = (safe_page - 1) * safe_page_size
+        end = start + safe_page_size
+        page_records = matched_records[start:end]
+    else:
+        total = query.count()
+        max_page = max((total + safe_page_size - 1) // safe_page_size, 1)
+        safe_page = min(safe_page, max_page)
+        page_records = (
+            query.order_by(PageRecord.id.desc())
+            .offset((safe_page - 1) * safe_page_size)
+            .limit(safe_page_size)
+            .all()
+        )
+
+    return {
+        "items": [record_to_response(record) for record in page_records],
+        "total": total,
+        "page": safe_page,
+        "pageSize": safe_page_size,
+    }
+
+
+def list_page_record_stats(
+    db: Session,
+    page_id: str,
+    filters: dict[str, str],
+) -> dict[str, Any]:
+    page_obj = get_or_create_page(db, page_id)
+    normalized_filters = normalize_record_filters(page_obj, filters)
     records = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id)
         .order_by(PageRecord.id.desc())
         .all()
     )
-
-    normalized_filters = {
-        key: value.strip().lower()
-        for key, value in filters.items()
-        if value is not None and value.strip()
-    }
-
-    def matches(record: PageRecord) -> bool:
-        data = json.loads(record.data_json)
-        for key, expected in normalized_filters.items():
-            actual = str(data.get(key, "")).lower()
-            if expected not in actual:
-                return False
-        return True
-
-    matched_records = [record for record in records if matches(record)]
-    safe_page = max(page, 1)
-    safe_page_size = max(min(page_size, 100), 1)
-    start = (safe_page - 1) * safe_page_size
-    end = start + safe_page_size
+    matched_records = [record for record in records if record_matches_filters(record, normalized_filters)]
 
     return {
-        "items": [record_to_response(record) for record in matched_records[start:end]],
+        "records": [
+            {
+                "id": record.id,
+                **json.loads(record.data_json),
+            }
+            for record in matched_records
+        ],
         "total": len(matched_records),
-        "page": safe_page,
-        "pageSize": safe_page_size,
     }
+
+
+def normalize_record_filters(page_obj: Page, filters: dict[str, str]) -> dict[str, str]:
+    schema_json = json.loads(page_obj.schema_json)
+    allowed_props = {
+        str(field.get("prop"))
+        for field in schema_json.get("fields", [])
+        if isinstance(field, dict) and field.get("prop")
+    }
+
+    if not allowed_props:
+        allowed_props = set(filters.keys())
+
+    return {
+        key: value.strip().lower()
+        for key, value in filters.items()
+        if key in allowed_props and value is not None and value.strip()
+    }
+
+
+def record_matches_filters(record: PageRecord, normalized_filters: dict[str, str]) -> bool:
+    if not normalized_filters:
+        return True
+
+    data = json.loads(record.data_json)
+    for key, expected in normalized_filters.items():
+        actual = str(data.get(key, "")).lower()
+        if expected not in actual:
+            return False
+    return True
 
 
 def create_page_record(db: Session, page_id: str, data: dict[str, Any]) -> PageRecord:

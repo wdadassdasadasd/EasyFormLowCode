@@ -129,3 +129,59 @@ def test_runtime_records_support_crud_search_and_pagination(client):
 
     final_response = client.get("/api/runtime/pages/user_manage/records")
     assert final_response.json()["total"] == 2
+
+
+def test_publish_uses_snapshot_until_republished(client):
+    first_schema = {
+        "id": "publish_page",
+        "title": "Published Title",
+        "pageType": "crud",
+        "fields": [{"id": "field_name", "label": "Name", "prop": "name", "type": "input"}],
+    }
+    draft_schema = {**first_schema, "title": "Draft Title"}
+
+    save_response = client.put(
+        "/api/pages/publish_page/schema",
+        json={"name": "Published Title", "schema_json": first_schema},
+    )
+    assert save_response.status_code == 200
+
+    publish_response = client.post("/api/pages/publish_page/publish")
+    assert publish_response.status_code == 200
+    assert publish_response.json()["schema_json"]["title"] == "Published Title"
+
+    draft_response = client.put(
+        "/api/pages/publish_page/schema",
+        json={"name": "Draft Title", "schema_json": draft_schema},
+    )
+    assert draft_response.status_code == 200
+    assert draft_response.json()["status"] == "draft"
+
+    published_response = client.get("/api/pages/publish_page/published")
+    assert published_response.status_code == 200
+    assert published_response.json()["status"] == "published"
+    assert published_response.json()["schema_json"]["title"] == "Published Title"
+
+
+def test_runtime_stats_use_filtered_records_not_current_page(client):
+    for index in range(12):
+        status = "enabled" if index % 2 == 0 else "disabled"
+        response = client.post(
+            "/api/runtime/pages/stats_page/records",
+            json={"data": {"username": f"user_{index}", "status": status}},
+        )
+        assert response.status_code == 200
+
+    page_response = client.get("/api/runtime/pages/stats_page/records?page=1&pageSize=5")
+    assert page_response.status_code == 200
+    assert len(page_response.json()["items"]) == 5
+    assert page_response.json()["total"] == 12
+
+    stats_response = client.get("/api/runtime/pages/stats_page/stats")
+    assert stats_response.status_code == 200
+    assert stats_response.json()["total"] == 12
+    assert len(stats_response.json()["records"]) == 12
+
+    filtered_stats = client.get("/api/runtime/pages/stats_page/stats?status=enabled")
+    assert filtered_stats.status_code == 200
+    assert filtered_stats.json()["total"] == 6

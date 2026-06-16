@@ -1,7 +1,8 @@
 import { getFieldInitialValue, getFieldTypeConfig, getFieldsByUsage, normalizeField } from '../schema/fieldTypes'
+import { normalizePageSchema } from '../schema/pageSchema'
 
 export function buildSchemaJson(schema) {
-  return JSON.stringify(schema, null, 2)
+  return JSON.stringify(normalizePageSchema(schema?.id, schema), null, 2)
 }
 
 export function buildVueSfc(schema) {
