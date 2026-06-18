@@ -9,10 +9,11 @@ export class ApiError extends Error {
   }
 }
 
-function buildUrl(path, params) {
-  const base = API_BASE_URL.replace(/\/$/, '')
-  const normalizedPath = String(path).replace(/^\//, '')
-  const url = new URL(`${base}/${normalizedPath}`, window.location.origin)
+function buildUrl(path, params, baseUrl = API_BASE_URL) {
+  const rawPath = String(path || '')
+  const url = /^https?:\/\//.test(rawPath)
+    ? new URL(rawPath)
+    : new URL(`${String(baseUrl).replace(/\/$/, '')}/${rawPath.replace(/^\//, '')}`, window.location.origin)
 
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value !== '' && value !== undefined && value !== null) {
@@ -24,23 +25,46 @@ function buildUrl(path, params) {
 }
 
 export async function apiRequest(path, options = {}) {
-  const { body, headers, params, ...fetchOptions } = options
-  const response = await fetch(buildUrl(path, params), {
-    ...fetchOptions,
-    headers: {
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  const { baseUrl, body, headers, onRequestSettled, params, ...fetchOptions } = options
+  const url = buildUrl(path, params, baseUrl)
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  let response = null
+  let payload = null
+  let requestError = null
 
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      headers: {
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
 
-  if (!response.ok) {
-    const message = payload?.detail || payload?.message || `Request failed with ${response.status}`
-    throw new ApiError(message, { status: response.status, payload })
+    const text = await response.text()
+    payload = text ? JSON.parse(text) : null
+
+    if (!response.ok) {
+      const message = payload?.detail || payload?.message || `Request failed with ${response.status}`
+      throw new ApiError(message, { status: response.status, payload })
+    }
+
+    return payload
+  } catch (error) {
+    requestError = error
+    throw error
+  } finally {
+    onRequestSettled?.({
+      method: String(fetchOptions.method || 'GET').toUpperCase(),
+      url: url.toString(),
+      params: params || {},
+      body,
+      status: response?.status || null,
+      ok: Boolean(response?.ok),
+      durationMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt),
+      payload,
+      error: requestError?.message || null,
+    })
   }
-
-  return payload
 }

@@ -6,8 +6,8 @@
         <h1>{{ pageSchema.title }}</h1>
         <p>{{ statusText }}</p>
       </div>
-      <el-tag :type="pageStatus === 'published' ? 'success' : 'info'" effect="plain">
-        {{ pageStatus === 'published' ? '已发布' : '草稿预览' }}
+      <el-tag :type="pageStatusTag.type" effect="plain">
+        {{ pageStatusTag.text }}
       </el-tag>
     </div>
 
@@ -21,7 +21,7 @@
       :description="runtimeError"
     />
 
-    <section class="search-card">
+    <section v-if="showSearchPanel" class="search-card">
       <div class="section-title">
         <strong>搜索表单</strong>
         <span>{{ searchableFields.length }} 个条件</span>
@@ -33,8 +33,8 @@
         </el-form-item>
 
         <div class="search-actions">
-          <el-button @click="resetSearch">重置</el-button>
-          <el-button type="primary" :loading="recordsLoading" @click="applySearch">查询</el-button>
+          <el-button v-if="pageActions.reset" @click="resetSearch">重置</el-button>
+          <el-button v-if="pageActions.search" type="primary" :loading="recordsLoading" @click="applySearch">查询</el-button>
         </div>
       </el-form>
     </section>
@@ -46,9 +46,17 @@
           <span>共 {{ pagination.total }} 条</span>
         </div>
         <div class="toolbar-left">
-          <el-button type="primary" @click="openCreateDialog">新增</el-button>
-          <el-button :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
-          <el-button type="danger" plain :disabled="selectedRows.length === 0" @click="deleteSelectedRows">删除</el-button>
+          <el-button v-if="pageActions.create" type="primary" @click="openCreateDialog">新增</el-button>
+          <el-button v-if="pageActions.edit" :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
+          <el-button
+            v-if="pageActions.batchDelete"
+            type="danger"
+            plain
+            :disabled="selectedRows.length === 0"
+            @click="deleteSelectedRows"
+          >
+            删除
+          </el-button>
         </div>
       </div>
 
@@ -59,18 +67,18 @@
         row-key="id"
         @selection-change="selectedRows = $event"
       >
-        <el-table-column type="selection" width="44" />
+        <el-table-column v-if="pageActions.batchDelete" type="selection" width="44" />
         <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column v-if="showRowActions" label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="danger" @click="deleteRecord(row)">删除</el-button>
+            <el-button v-if="pageActions.edit" link type="primary" @click="openEditDialog(row)">编辑</el-button>
+            <el-button v-if="pageActions.delete" link type="danger" @click="deleteRecord(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
       <div class="pagination-row">
-        <span>按后端分页参数查询</span>
+        <span>{{ pageSchema.datasource?.mode === 'rest' ? '按数据源返回结果展示' : '按后端分页参数查询' }}</span>
         <el-pagination
           v-model:current-page="pagination.currentPage"
           v-model:page-size="pagination.pageSize"
@@ -93,6 +101,8 @@
     <section class="chart-grid">
       <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
     </section>
+
+    <RequestInspector :request="lastRequest" />
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
       <el-empty v-if="formFields.length === 0" description="暂无表单字段" :image-size="70" />
@@ -120,6 +130,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
+import RequestInspector from '../components/RequestInspector.vue'
 import { usePageSchema } from '../composables/usePageSchema'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
@@ -130,28 +141,21 @@ import TableFieldColumn from '../renderer/TableFieldColumn.vue'
 import { buildDemoRows } from '../schema/defaultSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 
+defineOptions({
+  name: 'PreviewPage',
+})
+
 const route = useRoute()
 const pageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
 const isDraftPreview = computed(() => route.query.mode === 'draft')
+const runtimeMode = computed(() => (isDraftPreview.value ? 'draft' : 'published'))
 const statusText = ref('正在加载运行态页面...')
 let syncSchemaModels = () => {}
-const {
-  pageSchema,
-  pageStatus,
-  loadSchema: loadPageSchema,
-} = usePageSchema({
+const { pageSchema, pageStatus, loadSchema: loadPageSchema } = usePageSchema({
   pageId,
   syncModels: () => syncSchemaModels(),
 })
-const {
-  searchModel,
-  dialogForm,
-  formErrors,
-  searchableFields,
-  tableFields,
-  formFields,
-  syncModels,
-} = useSchemaModels(pageSchema)
+const { searchModel, dialogForm, formErrors, searchableFields, tableFields, formFields, syncModels } = useSchemaModels(pageSchema)
 syncSchemaModels = syncModels
 const {
   recordsLoading,
@@ -163,6 +167,7 @@ const {
   statsRows,
   runtimeError,
   isOffline,
+  lastRequest,
   pagination,
   loadRecords,
   resetSearch,
@@ -175,6 +180,8 @@ const {
   submitDialog,
 } = useRuntimeCrud({
   pageId,
+  pageSchema,
+  runtimeMode,
   searchableFields,
   formFields,
   searchModel,
@@ -182,6 +189,24 @@ const {
   formErrors,
   fallbackRows: buildDemoRows,
 })
+
+const pageActions = computed(() => pageSchema.actions || {})
+const pageStatusTag = computed(() => {
+  if (isOffline.value) {
+    return { text: '离线演示', type: 'warning' }
+  }
+
+  if (isDraftPreview.value) {
+    return { text: '草稿预览', type: 'info' }
+  }
+
+  return {
+    text: pageStatus.value === 'published' ? '已发布运行态' : '运行态预览',
+    type: pageStatus.value === 'published' ? 'success' : 'info',
+  }
+})
+const showSearchPanel = computed(() => searchableFields.value.length > 0 || pageActions.value.search || pageActions.value.reset)
+const showRowActions = computed(() => pageActions.value.edit || pageActions.value.delete)
 const metricCards = computed(() => buildMetricCards(statsRows.value, pageSchema.fields))
 const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
 
@@ -201,27 +226,32 @@ watch(
 )
 
 watch([pageId, isDraftPreview], async () => {
-  await loadSchema()
-  await loadRecords()
+  await loadPreview()
 })
 
 onMounted(async () => {
+  await loadPreview()
+})
+
+async function loadPreview() {
   await loadSchema()
   await loadRecords()
-})
+}
 
 async function loadSchema() {
   const result = await loadPageSchema({ published: !isDraftPreview.value })
   statusText.value = result
     ? isDraftPreview.value
       ? '已加载草稿 PageSchema'
-      : '已加载已发布 PageSchema'
+      : '已加载发布 PageSchema'
     : '后端不可用，当前使用演示 PageSchema'
 }
 </script>
 
 <style lang="scss" scoped>
 .runtime-page {
+  display: grid;
+  gap: 14px;
   min-height: calc(100vh - 88px);
   padding: 18px;
   background: #ffffff;
@@ -239,12 +269,8 @@ async function loadSchema() {
   gap: 12px;
 }
 
-.runtime-header {
-  margin-bottom: 16px;
-}
-
 .runtime-alert {
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .runtime-header span {
@@ -269,7 +295,6 @@ async function loadSchema() {
 
 .search-card,
 .table-card {
-  margin-bottom: 14px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
 }
@@ -323,7 +348,6 @@ async function loadSchema() {
 .chart-grid {
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .metrics-grid {

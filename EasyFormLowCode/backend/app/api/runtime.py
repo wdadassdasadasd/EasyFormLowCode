@@ -24,14 +24,15 @@ def get_runtime_records(
     request: Request,
     page: int = 1,
     pageSize: int = 10,
+    mode: str = "published",
     db: Session = Depends(get_db),
 ):
     filters = {
         key: value
         for key, value in request.query_params.items()
-        if key not in {"page", "pageSize"}
+        if key not in {"page", "pageSize", "mode"}
     }
-    return list_page_records(db, page_id, filters, page, pageSize)
+    return list_page_records(db, page_id, filters, page, pageSize, mode=mode)
 
 
 @router.get(
@@ -41,14 +42,15 @@ def get_runtime_records(
 def get_runtime_stats(
     page_id: str,
     request: Request,
+    mode: str = "published",
     db: Session = Depends(get_db),
 ):
     filters = {
         key: value
         for key, value in request.query_params.items()
-        if key not in {"page", "pageSize"}
+        if key not in {"page", "pageSize", "mode"}
     }
-    return list_page_record_stats(db, page_id, filters)
+    return list_page_record_stats(db, page_id, filters, mode=mode)
 
 
 @router.post(

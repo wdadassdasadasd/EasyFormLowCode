@@ -1,4 +1,4 @@
-import { getFieldInitialValue, getFieldTypeConfig, getFieldsByUsage, normalizeField } from '../schema/fieldTypes'
+import { getFieldInitialValue, getFieldTypeConfig, getFieldsByUsage } from '../schema/fieldTypes'
 import { normalizePageSchema } from '../schema/pageSchema'
 
 export function buildSchemaJson(schema) {
@@ -6,7 +6,7 @@ export function buildSchemaJson(schema) {
 }
 
 export function buildVueSfc(schema) {
-  const normalizedSchema = normalizeSchema(schema)
+  const normalizedSchema = normalizePageSchema(schema?.id, schema)
   const title = normalizedSchema.title || '低代码页面'
   const searchableFields = getFieldsByUsage(normalizedSchema.fields, 'search')
   const tableFields = getFieldsByUsage(normalizedSchema.fields, 'table')
@@ -22,25 +22,21 @@ export function buildVueSfc(schema) {
         <span>PageSchema Runtime</span>
         <h1>${escapeHtml(title)}</h1>
       </div>
-      <el-button type="primary" @click="openCreateDialog">新增</el-button>
+      <el-button v-if="pageActions.create" type="primary" @click="openCreateDialog">新增</el-button>
     </header>
 
-    <el-form class="search-form" :model="searchModel" label-position="top">
+    <el-form v-if="showSearchPanel" class="search-form" :model="searchModel" label-position="top">
 ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
       <div class="search-actions">
-        <el-button @click="resetSearch">重置</el-button>
-        <el-button type="primary" @click="loadRecords">查询</el-button>
+        <el-button v-if="pageActions.reset" @click="resetSearch">重置</el-button>
+        <el-button v-if="pageActions.search" type="primary" @click="loadRecords">查询</el-button>
       </div>
     </el-form>
 
     <el-table :data="rows" border>
+${pageSelectionColumn(normalizedSchema.actions)}
 ${tableFields.map((field) => `      ${getFieldTypeConfig(field.type).exporter.table(field)}`).join('\n')}
-      <el-table-column label="操作" width="140">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
-          <el-button link type="danger" @click="deleteRecord(row.id)">删除</el-button>
-        </template>
-      </el-table-column>
+${renderOperationColumn(normalizedSchema.actions)}
     </el-table>
 
     <section class="metrics-grid">
@@ -82,8 +78,8 @@ import VChart from 'vue-echarts'
 
 use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api'
-const PAGE_ID = '${escapeScriptString(normalizedSchema.id || 'user_manage')}'
+const DATASOURCE = ${JSON.stringify(normalizedSchema.datasource, null, 2)}
+const PAGE_ACTIONS = ${JSON.stringify(normalizedSchema.actions, null, 2)}
 const rows = ref([])
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增数据')
@@ -93,6 +89,8 @@ const dialogForm = reactive(${JSON.stringify(dialogForm, null, 2)})
 const formFields = ${JSON.stringify(formFields, null, 2)}
 const fields = ${JSON.stringify(normalizedSchema.fields, null, 2)}
 const charts = ${JSON.stringify(charts, null, 2)}
+const pageActions = PAGE_ACTIONS
+const showSearchPanel = ${Boolean(searchableFields.length > 0 || normalizedSchema.actions.search || normalizedSchema.actions.reset)}
 
 const metricCards = computed(() => {
   const total = rows.value.length
@@ -105,6 +103,10 @@ const metricCards = computed(() => {
 
 const chartOptions = computed(() => {
   return charts.map((chart) => {
+    if (chart.type === 'metric') {
+      return { ...chart, empty: false, option: null }
+    }
+
     const groups = rows.value.reduce((result, row) => {
       const raw = row[chart.dimension]
       const label = formatFieldValue(chart.dimension, raw)
@@ -135,13 +137,9 @@ const chartOptions = computed(() => {
 })
 
 async function loadRecords() {
-  const params = new URLSearchParams({ page: '1', pageSize: '10' })
-  Object.entries(searchModel).forEach(([key, value]) => {
-    if (value !== '' && value !== undefined && value !== null) params.set(key, value)
-  })
-  const response = await fetch(\`\${API_BASE}/runtime/pages/\${PAGE_ID}/records?\${params}\`)
-  const result = await response.json()
-  rows.value = result.items.map((item) => ({ id: item.id, ...item.data }))
+  const response = await requestDatasource('list', { params: buildSearchParams() })
+  const result = normalizeListResponse(response)
+  rows.value = result.items
 }
 
 function resetSearch() {
@@ -155,7 +153,7 @@ function openCreateDialog() {
   editingRecordId.value = null
   dialogTitle.value = '新增数据'
   formFields.forEach((field) => {
-    dialogForm[field.prop] = field.defaultValue ?? ''
+    dialogForm[field.prop] = field.defaultValue !== undefined && field.defaultValue !== '' ? field.defaultValue : getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
@@ -164,19 +162,14 @@ function openEditDialog(row) {
   editingRecordId.value = row.id
   dialogTitle.value = '编辑数据'
   formFields.forEach((field) => {
-    dialogForm[field.prop] = row[field.prop] ?? field.defaultValue ?? ''
+    dialogForm[field.prop] = row[field.prop] ?? getFieldInitialValue(field)
   })
   dialogVisible.value = true
 }
 
 async function submitDialog() {
   const invalidField = formFields.find((field) => {
-    const value = dialogForm[field.prop]
-    if (field.required && String(value ?? '').trim() === '') return true
-    if (field.maxLength && String(value ?? '').length > Number(field.maxLength)) return true
-    if (field.type === 'number' && field.min !== undefined && value !== '' && Number(value) < Number(field.min)) return true
-    if (field.type === 'number' && field.max !== undefined && value !== '' && Number(value) > Number(field.max)) return true
-    return false
+    return buildFieldRules(field).some((rule) => !rule.validator(dialogForm[field.prop]))
   })
 
   if (invalidField) {
@@ -184,28 +177,115 @@ async function submitDialog() {
     return
   }
 
-  const url = editingRecordId.value
-    ? \`\${API_BASE}/runtime/pages/\${PAGE_ID}/records/\${editingRecordId.value}\`
-    : \`\${API_BASE}/runtime/pages/\${PAGE_ID}/records\`
-  const response = await fetch(url, {
-    method: editingRecordId.value ? 'PUT' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: dialogForm }),
-  })
-  if (!response.ok) {
-    ElMessage.error('提交失败')
+  const body = { data: buildPlainRecord(dialogForm) }
+  const requestType = editingRecordId.value ? 'update' : 'create'
+  const response = await requestDatasource(requestType, { recordId: editingRecordId.value, body })
+  if (response?.detail) {
+    ElMessage.error(response.detail)
     return
   }
+
   dialogVisible.value = false
   ElMessage.success('提交成功')
   loadRecords()
 }
 
-async function deleteRecord(recordId) {
+async function deleteRecord(recordIdOrRow) {
+  const recordId = typeof recordIdOrRow === 'object' ? recordIdOrRow.id : recordIdOrRow
   await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
-  await fetch(\`\${API_BASE}/runtime/pages/\${PAGE_ID}/records/\${recordId}\`, { method: 'DELETE' })
+  await requestDatasource('delete', { recordId })
   ElMessage.success('删除成功')
   loadRecords()
+}
+
+function buildSearchParams() {
+  const params = {}
+  Object.entries(searchModel).forEach(([key, value]) => {
+    if (value !== '' && value !== undefined && value !== null) {
+      params[key] = value
+    }
+  })
+  return params
+}
+
+function buildPlainRecord(source) {
+  return formFields.reduce((record, field) => {
+    record[field.prop] = source[field.prop]
+    return record
+  }, {})
+}
+
+function requestUrl(type, recordId) {
+  const urlMap = {
+    list: DATASOURCE.listUrl,
+    create: DATASOURCE.createUrl,
+    update: DATASOURCE.updateUrl,
+    delete: DATASOURCE.deleteUrl,
+  }
+  return String(urlMap[type] || '').replace(':id', recordId ?? '')
+}
+
+async function requestDatasource(type, { body, params = {}, recordId } = {}) {
+  const query = new URLSearchParams(params)
+  if (DATASOURCE.mode === 'runtime') {
+    query.set('mode', 'published')
+  }
+
+  const url = requestUrl(type, recordId)
+  const response = await fetch(query.size ? \`\${url}?\${query}\` : url, {
+    method: type === 'list' ? 'GET' : type === 'create' ? 'POST' : type === 'update' ? 'PUT' : 'DELETE',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+
+  const text = await response.text()
+  return text ? JSON.parse(text) : null
+}
+
+function normalizeListResponse(result) {
+  const source = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : []
+  return {
+    items: source.map((item, index) => {
+      if (item?.data && item.id !== undefined) {
+        return { id: item.id, ...item.data }
+      }
+
+      return {
+        id: item?.id ?? index + 1,
+        ...(item || {}),
+      }
+    }),
+  }
+}
+
+function getFieldInitialValue(field) {
+  if (field.defaultValue !== undefined && field.defaultValue !== '') return field.defaultValue
+  if (field.type === 'switch') return false
+  if (field.type === 'number') return 0
+  return ''
+}
+
+function buildFieldRules(field) {
+  const rules = []
+  if (field.required) {
+    rules.push({
+      validator: (value) => value !== '' && value !== undefined && value !== null,
+    })
+  }
+  if (field.type === 'number') {
+    rules.push({
+      validator: (value) => field.min === undefined || value === '' || value === null || Number(value) >= Number(field.min),
+    })
+    rules.push({
+      validator: (value) => field.max === undefined || value === '' || value === null || Number(value) <= Number(field.max),
+    })
+  }
+  if (field.maxLength) {
+    rules.push({
+      validator: (value) => String(value ?? '').length <= Number(field.maxLength),
+    })
+  }
+  return rules
 }
 
 function formatOptionValue(value, options) {
@@ -213,16 +293,16 @@ function formatOptionValue(value, options) {
   return option?.label ?? value ?? ''
 }
 
-function formatSwitchValue(value, activeText = '是', inactiveText = '否') {
-  if ([true, 'true', 'enabled', 'yes'].includes(value)) return activeText
-  if ([false, 'false', 'disabled', 'no'].includes(value)) return inactiveText
-  return value ?? ''
-}
-
 function formatFieldValue(prop, value) {
   const field = fields.find((item) => item.prop === prop)
-  const option = field?.options?.find((item) => String(item.value) === String(value))
-  return option?.label || value || '未填写'
+  if (field?.type === 'switch') {
+    if ([true, 'true', 'enabled', 'yes'].includes(value)) return field.activeText || '是'
+    if ([false, 'false', 'disabled', 'no'].includes(value)) return field.inactiveText || '否'
+  }
+  if (Array.isArray(field?.options)) {
+    return formatOptionValue(value, field.options)
+  }
+  return value || '未填写'
 }
 
 loadRecords()
@@ -314,15 +394,6 @@ export function downloadTextFile(filename, content, type = 'text/plain;charset=u
   URL.revokeObjectURL(url)
 }
 
-function normalizeSchema(schema) {
-  const fields = Array.isArray(schema?.fields) ? schema.fields.map((field, index) => normalizeField(field, index + 1)) : []
-
-  return {
-    ...schema,
-    fields,
-  }
-}
-
 function renderSearchItem(field) {
   return `      <el-form-item label="${escapeHtml(field.label)}">
         ${getFieldTypeConfig(field.type).exporter.search(field, 'searchModel')}
@@ -342,6 +413,23 @@ function buildInitialModel(fields, emptyValue) {
   }, {})
 }
 
+function pageSelectionColumn(actions = {}) {
+  return actions.batchDelete ? '      <el-table-column type="selection" width="44" />' : ''
+}
+
+function renderOperationColumn(actions = {}) {
+  if (!actions.edit && !actions.delete) {
+    return ''
+  }
+
+  return `      <el-table-column label="操作" width="140">
+        <template #default="{ row }">
+          ${actions.edit ? '<el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>' : ''}
+          ${actions.delete ? '<el-button link type="danger" @click="deleteRecord(row.id)">删除</el-button>' : ''}
+        </template>
+      </el-table-column>`
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -349,8 +437,4 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
-}
-
-function escapeScriptString(value) {
-  return String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")
 }

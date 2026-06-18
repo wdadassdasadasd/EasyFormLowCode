@@ -1,5 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { reactive, ref, unref } from 'vue'
+import { computed, reactive, ref, unref } from 'vue'
 
 import {
   createRuntimeRecord,
@@ -8,10 +8,19 @@ import {
   listRuntimeRecords,
   updateRuntimeRecord,
 } from '../api/runtime'
-import { buildFieldRules, getFieldInitialValue } from '../schema/fieldTypes'
+import {
+  applyFormErrors,
+  buildFormValues,
+  buildPlainRecord,
+  buildSearchFilters,
+  resetFieldValues,
+  validateRecord,
+} from '../utils/runtimeCrudHelpers'
 
 export function useRuntimeCrud({
   pageId,
+  pageSchema,
+  runtimeMode = 'published',
   searchableFields,
   formFields,
   searchModel,
@@ -30,11 +39,13 @@ export function useRuntimeCrud({
   const statsRows = ref([])
   const runtimeError = ref('')
   const isOffline = ref(false)
+  const lastRequest = ref(null)
   const pagination = reactive({
     currentPage: 1,
     pageSize: 10,
     total: 0,
   })
+  const datasource = computed(() => unref(pageSchema)?.datasource || unref(pageSchema)?.api || {})
 
   async function loadRecords() {
     recordsLoading.value = true
@@ -44,14 +55,18 @@ export function useRuntimeCrud({
     try {
       const filters = buildFilters()
       const result = await listRuntimeRecords(unref(pageId), {
+        datasource: datasource.value,
+        mode: unref(runtimeMode),
+        onRequestSettled: trackRequest,
         page: pagination.currentPage,
         pageSize: pagination.pageSize,
         filters,
       })
+      const normalizedResult = normalizeRecordListResponse(result)
 
-      recordRows.value = result.items.map((item) => ({ id: item.id, ...item.data }))
-      pagination.total = result.total
-      pagination.currentPage = result.page
+      recordRows.value = normalizedResult.items
+      pagination.total = normalizedResult.total
+      pagination.currentPage = normalizedResult.page
       await loadStats(filters)
     } catch (error) {
       recordRows.value = fallbackRows()
@@ -65,7 +80,17 @@ export function useRuntimeCrud({
   }
 
   async function loadStats(filters = buildFilters()) {
-    const result = await getRuntimeStats(unref(pageId), { filters })
+    if (datasource.value?.mode === 'rest') {
+      statsRows.value = [...recordRows.value]
+      return
+    }
+
+    const result = await getRuntimeStats(unref(pageId), {
+      datasource: datasource.value,
+      mode: unref(runtimeMode),
+      onRequestSettled: trackRequest,
+      filters,
+    })
     statsRows.value = result.records || []
   }
 
@@ -87,9 +112,7 @@ export function useRuntimeCrud({
     editingRecordId.value = null
     dialogTitle.value = '新增数据'
     clearFormErrors()
-    formFields.value.forEach((field) => {
-      dialogForm[field.prop] = getFieldInitialValue(field)
-    })
+    resetFieldValues(dialogForm, formFields.value)
     dialogVisible.value = true
   }
 
@@ -98,9 +121,7 @@ export function useRuntimeCrud({
     editingRecordId.value = row.id
     dialogTitle.value = '编辑数据'
     clearFormErrors()
-    formFields.value.forEach((field) => {
-      dialogForm[field.prop] = row[field.prop] ?? getFieldInitialValue(field)
-    })
+    Object.assign(dialogForm, buildFormValues(formFields.value, row))
     dialogVisible.value = true
   }
 
@@ -130,7 +151,10 @@ export function useRuntimeCrud({
       await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
     }
 
-    await deleteRuntimeRecord(unref(pageId), row.id)
+    await deleteRuntimeRecord(unref(pageId), row.id, {
+      datasource: datasource.value,
+      onRequestSettled: trackRequest,
+    })
 
     if (reload) {
       ElMessage.success('删除成功')
@@ -149,61 +173,47 @@ export function useRuntimeCrud({
 
     try {
       if (dialogMode.value === 'edit') {
-        await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm))
+        await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm), {
+          datasource: datasource.value,
+          onRequestSettled: trackRequest,
+        })
       } else {
-        await createRuntimeRecord(unref(pageId), toPlainRecord(dialogForm))
+        await createRuntimeRecord(unref(pageId), toPlainRecord(dialogForm), {
+          datasource: datasource.value,
+          onRequestSettled: trackRequest,
+        })
       }
 
       dialogVisible.value = false
       ElMessage.success(dialogMode.value === 'edit' ? '编辑成功' : '新增成功')
       await loadRecords()
     } catch (error) {
-      ElMessage.error('提交失败，请确认后端服务已启动')
+      ElMessage.error(error?.message || '提交失败，请确认后端服务已启动')
     } finally {
       submitLoading.value = false
     }
   }
 
   function validateDialogForm() {
-    let valid = true
-
-    formFields.value.forEach((field) => {
-      const rules = buildFieldRules(field)
-      const value = dialogForm[field.prop]
-      const failedRule = rules.find((rule) => !rule.validator(value))
-
-      if (failedRule) {
-        formErrors[field.prop] = failedRule.message
-        valid = false
-      }
-    })
-
-    return valid
+    const validation = validateRecord(formFields.value, dialogForm)
+    applyFormErrors(formErrors, validation.errors)
+    return validation.valid
   }
 
   function clearFormErrors() {
-    Object.keys(formErrors).forEach((key) => {
-      formErrors[key] = ''
-    })
+    applyFormErrors(formErrors, {})
   }
 
   function toPlainRecord(source) {
-    return formFields.value.reduce((record, field) => {
-      record[field.prop] = source[field.prop]
-      return record
-    }, {})
+    return buildPlainRecord(formFields.value, source)
   }
 
   function buildFilters() {
-    return searchableFields.value.reduce((result, field) => {
-      const value = searchModel[field.prop]
+    return buildSearchFilters(searchableFields.value, searchModel)
+  }
 
-      if (value !== '' && value !== undefined && value !== null) {
-        result[field.prop] = value
-      }
-
-      return result
-    }, {})
+  function trackRequest(request) {
+    lastRequest.value = request
   }
 
   return {
@@ -218,6 +228,7 @@ export function useRuntimeCrud({
     statsRows,
     runtimeError,
     isOffline,
+    lastRequest,
     pagination,
     loadRecords,
     loadStats,
@@ -229,5 +240,26 @@ export function useRuntimeCrud({
     deleteSelectedRows,
     deleteRecord,
     submitDialog,
+  }
+}
+
+function normalizeRecordListResponse(result) {
+  const rows = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : []
+  const items = rows.map((item, index) => {
+    if (item?.data && item.id !== undefined) {
+      return { id: item.id, ...item.data }
+    }
+
+    return {
+      id: item?.id ?? index + 1,
+      ...item,
+    }
+  })
+
+  return {
+    items,
+    total: Number(result?.total ?? items.length),
+    page: Number(result?.page ?? 1),
+    pageSize: Number(result?.pageSize ?? (items.length || 10)),
   }
 }

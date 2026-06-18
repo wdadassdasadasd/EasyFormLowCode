@@ -1,17 +1,37 @@
 import { createFieldByType } from './fieldTypes'
 
-export function createDefaultPageSchema(pageId = 'user_manage') {
+export const SCHEMA_VERSION = 1
+
+export const DEFAULT_PAGE_ACTIONS = {
+  search: true,
+  reset: true,
+  create: true,
+  edit: true,
+  delete: true,
+  batchDelete: true,
+}
+
+export function buildRuntimeDatasource(pageId = 'user_manage') {
   return {
+    mode: 'runtime',
+    listUrl: `/api/runtime/pages/${pageId}/records`,
+    createUrl: `/api/runtime/pages/${pageId}/records`,
+    updateUrl: `/api/runtime/pages/${pageId}/records/:id`,
+    deleteUrl: `/api/runtime/pages/${pageId}/records/:id`,
+  }
+}
+
+export function createDefaultPageSchema(pageId = 'user_manage') {
+  const datasource = buildRuntimeDatasource(pageId)
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
     id: pageId,
     title: '用户管理',
     pageType: 'crud',
-    api: {
-      mode: 'runtime',
-      listUrl: `/api/runtime/pages/${pageId}/records`,
-      createUrl: `/api/runtime/pages/${pageId}/records`,
-      updateUrl: `/api/runtime/pages/${pageId}/records/:id`,
-      deleteUrl: `/api/runtime/pages/${pageId}/records/:id`,
-    },
+    datasource,
+    api: { ...datasource },
+    actions: { ...DEFAULT_PAGE_ACTIONS },
     fields: [
       createFieldByType('input', {
         id: 'field_username',

@@ -6,60 +6,11 @@ from sqlalchemy.orm import Session
 from app.models.page import Page
 from app.models.page_record import PageRecord
 from app.models.page_version import PageVersion
-
-
-def get_default_schema(page_id: str) -> dict[str, Any]:
-    return {
-        "id": page_id,
-        "title": "用户管理",
-        "pageType": "crud",
-        "api": {
-            "mode": "runtime",
-            "listUrl": f"/api/runtime/pages/{page_id}/records",
-            "createUrl": f"/api/runtime/pages/{page_id}/records",
-            "updateUrl": f"/api/runtime/pages/{page_id}/records/:id",
-            "deleteUrl": f"/api/runtime/pages/{page_id}/records/:id",
-        },
-        "fields": [],
-        "table": {
-            "rowKey": "id",
-            "columns": [],
-            "actions": ["edit", "delete"],
-        },
-        "formDialog": {
-            "title": "编辑数据",
-            "width": "600px",
-        },
-        "charts": [],
-    }
-
-
-def normalize_page_schema(page_id: str, schema_json: dict[str, Any]) -> dict[str, Any]:
-    normalized = {
-        **get_default_schema(page_id),
-        **(schema_json or {}),
-    }
-
-    normalized["id"] = str(normalized.get("id") or page_id)
-    normalized["title"] = str(normalized.get("title") or "用户管理")
-    normalized["pageType"] = str(normalized.get("pageType") or "crud")
-
-    if not isinstance(normalized.get("api"), dict):
-        normalized["api"] = get_default_schema(page_id)["api"]
-
-    if not isinstance(normalized.get("fields"), list):
-        normalized["fields"] = []
-
-    if not isinstance(normalized.get("table"), dict):
-        normalized["table"] = get_default_schema(page_id)["table"]
-
-    if not isinstance(normalized.get("formDialog"), dict):
-        normalized["formDialog"] = get_default_schema(page_id)["formDialog"]
-
-    if not isinstance(normalized.get("charts"), list):
-        normalized["charts"] = []
-
-    return normalized
+from app.services.schema_contract import (
+    get_minimal_schema,
+    get_page_schema_validation_errors,
+    normalize_page_schema,
+)
 
 
 def get_or_create_page(db: Session, page_id: str) -> Page:
@@ -72,7 +23,7 @@ def get_or_create_page(db: Session, page_id: str) -> Page:
         page_key=page_id,
         name="用户管理",
         status="draft",
-        schema_json=json.dumps(get_default_schema(page_id), ensure_ascii=False),
+        schema_json=json.dumps(get_minimal_schema(page_id), ensure_ascii=False),
     )
     db.add(page)
     db.commit()
@@ -145,6 +96,10 @@ def save_page_schema(
     name: str,
     schema_json: dict[str, Any],
 ) -> Page:
+    validation_errors = get_page_schema_validation_errors(schema_json)
+    if validation_errors:
+        raise ValueError("; ".join(validation_errors))
+
     page = get_or_create_page(db, page_id)
     normalized_schema = normalize_page_schema(page_id, schema_json)
     page.name = name or normalized_schema.get("title") or page.name
@@ -182,11 +137,12 @@ def list_page_records(
     filters: dict[str, str],
     page: int,
     page_size: int,
+    mode: str = "published",
 ) -> dict[str, Any]:
     page_obj = get_or_create_page(db, page_id)
     safe_page = max(page, 1)
     safe_page_size = max(min(page_size, 100), 1)
-    normalized_filters = normalize_record_filters(page_obj, filters)
+    normalized_filters = normalize_record_filters(page_obj, filters, mode=mode)
 
     query = db.query(PageRecord).filter(PageRecord.page_id == page_obj.id)
 
@@ -222,9 +178,10 @@ def list_page_record_stats(
     db: Session,
     page_id: str,
     filters: dict[str, str],
+    mode: str = "published",
 ) -> dict[str, Any]:
     page_obj = get_or_create_page(db, page_id)
-    normalized_filters = normalize_record_filters(page_obj, filters)
+    normalized_filters = normalize_record_filters(page_obj, filters, mode=mode)
     records = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id)
@@ -245,8 +202,12 @@ def list_page_record_stats(
     }
 
 
-def normalize_record_filters(page_obj: Page, filters: dict[str, str]) -> dict[str, str]:
-    schema_json = json.loads(page_obj.schema_json)
+def normalize_record_filters(
+    page_obj: Page,
+    filters: dict[str, str],
+    mode: str = "published",
+) -> dict[str, str]:
+    schema_json = get_runtime_schema(page_obj, mode)
     allowed_props = {
         str(field.get("prop"))
         for field in schema_json.get("fields", [])
@@ -261,6 +222,14 @@ def normalize_record_filters(page_obj: Page, filters: dict[str, str]) -> dict[st
         for key, value in filters.items()
         if key in allowed_props and value is not None and value.strip()
     }
+
+
+def get_runtime_schema(page_obj: Page, mode: str = "published") -> dict[str, Any]:
+    if mode == "draft":
+        return json.loads(page_obj.schema_json)
+
+    snapshot = page_obj.published_schema_json or page_obj.schema_json
+    return json.loads(snapshot)
 
 
 def record_matches_filters(record: PageRecord, normalized_filters: dict[str, str]) -> bool:
@@ -375,7 +344,7 @@ def restore_page_version(
     if not version:
         return None
 
-    schema_json = json.loads(version.schema_json)
+    schema_json = normalize_page_schema(page_id, json.loads(version.schema_json))
     page_obj.schema_json = json.dumps(schema_json, ensure_ascii=False)
     page_obj.name = schema_json.get("title") or page_obj.name
     page_obj.status = "draft"

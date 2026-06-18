@@ -74,6 +74,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { listPages } from '../api/pages'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 
+defineOptions({
+  name: 'MainView',
+})
+
 const componentRef = ref(null)
 const route = useRoute()
 const router = useRouter()
@@ -101,7 +105,7 @@ async function loadPages() {
   try {
     const result = await listPages()
     pages.value = result.length ? result : pages.value
-  } catch (error) {
+  } catch {
     ElMessage.warning('页面列表加载失败，当前使用默认页面')
   }
 }

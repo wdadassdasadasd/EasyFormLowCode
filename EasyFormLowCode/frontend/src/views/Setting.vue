@@ -8,6 +8,12 @@
   </section>
 </template>
 
+<script setup>
+defineOptions({
+  name: 'SettingPage',
+})
+</script>
+
 <style lang="scss" scoped>
 .placeholder-page {
   min-height: calc(100vh - 88px);

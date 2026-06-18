@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -38,7 +38,10 @@ def update_page_schema(
     payload: PageSchemaUpdate,
     db: Session = Depends(get_db),
 ):
-    page = save_page_schema(db, page_id, payload.name, payload.schema_data)
+    try:
+        page = save_page_schema(db, page_id, payload.name, payload.schema_data)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return page_to_response(page)
 
 

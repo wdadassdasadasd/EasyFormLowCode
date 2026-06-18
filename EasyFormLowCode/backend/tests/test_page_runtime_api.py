@@ -25,11 +25,11 @@ def client():
         f"sqlite:///{db_path}",
         connect_args={"check_same_thread": False},
     )
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
 
     def override_get_db():
-        db = TestingSessionLocal()
+        db = testing_session_local()
         try:
             yield db
         finally:
@@ -47,6 +47,7 @@ def client():
 
 def test_save_schema_creates_versions_and_restore(client):
     first_schema = {
+        "schemaVersion": 1,
         "id": "demo_page",
         "title": "用户管理",
         "pageType": "crud",
@@ -75,6 +76,7 @@ def test_save_schema_creates_versions_and_restore(client):
     )
     assert response.status_code == 200
     assert response.json()["schema_json"]["title"] == "用户管理"
+    assert response.json()["schema_json"]["schemaVersion"] == 1
 
     response = client.put(
         "/api/pages/demo_page/schema",
@@ -133,6 +135,7 @@ def test_runtime_records_support_crud_search_and_pagination(client):
 
 def test_publish_uses_snapshot_until_republished(client):
     first_schema = {
+        "schemaVersion": 1,
         "id": "publish_page",
         "title": "Published Title",
         "pageType": "crud",
@@ -185,3 +188,68 @@ def test_runtime_stats_use_filtered_records_not_current_page(client):
     filtered_stats = client.get("/api/runtime/pages/stats_page/stats?status=enabled")
     assert filtered_stats.status_code == 200
     assert filtered_stats.json()["total"] == 6
+
+
+def test_save_schema_rejects_invalid_root_shape(client):
+    response = client.put(
+        "/api/pages/invalid_page/schema",
+        json={
+            "name": "Invalid",
+            "schema_json": {
+                "schemaVersion": 1,
+                "id": "invalid_page",
+                "title": "Invalid",
+                "fields": {},
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert "fields must be an array" in response.json()["detail"]
+
+
+def test_runtime_mode_uses_published_schema_snapshot(client):
+    published_schema = {
+        "schemaVersion": 1,
+        "id": "runtime_mode_page",
+        "title": "Runtime Mode",
+        "pageType": "crud",
+        "fields": [{"id": "field_name", "label": "Name", "prop": "name", "type": "input"}],
+    }
+    draft_schema = {
+        **published_schema,
+        "fields": [{"id": "field_status", "label": "Status", "prop": "status", "type": "input"}],
+    }
+
+    save_response = client.put(
+        "/api/pages/runtime_mode_page/schema",
+        json={"name": "Runtime Mode", "schema_json": published_schema},
+    )
+    assert save_response.status_code == 200
+
+    publish_response = client.post("/api/pages/runtime_mode_page/publish")
+    assert publish_response.status_code == 200
+
+    record_response = client.post(
+        "/api/runtime/pages/runtime_mode_page/records",
+        json={"data": {"name": "alpha", "status": "enabled"}},
+    )
+    assert record_response.status_code == 200
+
+    update_response = client.put(
+        "/api/pages/runtime_mode_page/schema",
+        json={"name": "Runtime Mode Draft", "schema_json": draft_schema},
+    )
+    assert update_response.status_code == 200
+
+    published_status_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=published&status=enabled")
+    assert published_status_search.status_code == 200
+    assert published_status_search.json()["total"] == 1
+
+    draft_status_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=draft&status=enabled")
+    assert draft_status_search.status_code == 200
+    assert draft_status_search.json()["total"] == 1
+
+    published_name_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=published&name=alp")
+    assert published_name_search.status_code == 200
+    assert published_name_search.json()["total"] == 1
