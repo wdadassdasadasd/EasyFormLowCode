@@ -16,7 +16,7 @@ export function listRuntimeRecords(pageId, { datasource, mode = 'published', onR
 
 export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequestSettled, filters = {} } = {}) {
   if (resolveDatasourceMode(datasource) === 'rest') {
-    return Promise.resolve({ records: [], total: 0 })
+    return Promise.reject(new Error('外部数据源暂不支持统计能力'))
   }
 
   return requestByDatasource(datasource, {
@@ -59,6 +59,20 @@ export function deleteRuntimeRecord(pageId, recordId, { datasource, onRequestSet
   })
 }
 
+export function deleteRuntimeRecords(pageId, recordIds, { datasource, onRequestSettled } = {}) {
+  if (resolveDatasourceMode(datasource) === 'rest') {
+    return Promise.reject(new Error('外部数据源暂不支持批量删除'))
+  }
+
+  return requestByDatasource(datasource, {
+    pageId,
+    onRequestSettled,
+    requestType: 'batchDelete',
+    method: 'DELETE',
+    body: { record_ids: recordIds },
+  })
+}
+
 function requestByDatasource(datasource, options = {}) {
   const mode = resolveDatasourceMode(datasource)
   const path = resolveRequestPath(mode, datasource, options)
@@ -95,6 +109,7 @@ function resolveRequestPath(mode, datasource, options) {
     create: `${runtimeBase}/records`,
     update: `${runtimeBase}/records/${options.recordId}`,
     delete: `${runtimeBase}/records/${options.recordId}`,
+    batchDelete: `${runtimeBase}/records`,
   }
   return pathMap[options.requestType]
 }

@@ -7,6 +7,7 @@ import {
 import { normalizeField } from './fieldTypes'
 
 const VALID_DATASOURCE_MODES = new Set(['runtime', 'rest'])
+const VALID_FIELD_TYPES = new Set(['input', 'textarea', 'number', 'select', 'radio', 'date', 'switch'])
 
 export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   const source = isPlainObject(schema) ? clonePageSchema(schema) : {}
@@ -64,6 +65,48 @@ export function getPageSchemaValidationErrors(schema = {}) {
   const datasourceMode = schema.datasource?.mode ?? schema.api?.mode
   if (datasourceMode !== undefined && !VALID_DATASOURCE_MODES.has(String(datasourceMode))) {
     errors.push('datasource.mode must be runtime or rest')
+  }
+
+  if (Array.isArray(schema.fields)) {
+    const ids = new Set()
+    const props = new Set()
+    schema.fields.forEach((field, index) => {
+      const prefix = `fields[${index}]`
+      if (!isPlainObject(field)) {
+        errors.push(`${prefix} must be an object`)
+        return
+      }
+      if (!String(field.id || '').trim()) errors.push(`${prefix}.id is required`)
+      else if (ids.has(field.id)) errors.push(`duplicate field id: ${field.id}`)
+      else ids.add(field.id)
+      if (!String(field.prop || '').trim()) errors.push(`${prefix}.prop is required`)
+      else if (props.has(field.prop)) errors.push(`duplicate field prop: ${field.prop}`)
+      else props.add(field.prop)
+      if (!VALID_FIELD_TYPES.has(field.type)) errors.push(`${prefix}.type is invalid`)
+      ;['searchable', 'tableVisible', 'formVisible', 'required'].forEach((key) => {
+        if (key in field && typeof field[key] !== 'boolean') errors.push(`${prefix}.${key} must be a boolean`)
+      })
+      if (['select', 'radio'].includes(field.type)) {
+        if (!Array.isArray(field.options)) {
+          errors.push(`${prefix}.options must be an array`)
+          return
+        }
+        const values = new Set()
+        field.options.forEach((option) => {
+          if (!isPlainObject(option) || !String(option.label || '').trim()) errors.push(`${prefix}.options must include labels`)
+          const value = String(option?.value ?? '')
+          if (!value) errors.push(`${prefix}.options must include values`)
+          else if (values.has(value)) errors.push(`${prefix}.options values must be unique`)
+          else values.add(value)
+        })
+      }
+    })
+    if (Array.isArray(schema.charts)) {
+      schema.charts.forEach((chart, index) => {
+        if (!isPlainObject(chart)) errors.push(`charts[${index}] must be an object`)
+        else if (chart.type !== 'metric' && !props.has(chart.dimension)) errors.push(`charts[${index}].dimension must reference a field prop`)
+      })
+    }
   }
 
   return errors

@@ -6,9 +6,10 @@
         <h1>{{ pageSchema.title }}</h1>
         <p>{{ statusText }}</p>
       </div>
-      <el-tag :type="pageStatusTag.type" effect="plain">
-        {{ pageStatusTag.text }}
-      </el-tag>
+      <div class="runtime-status">
+        <el-tag :type="pageStatusTag.type" effect="plain">{{ pageStatusTag.text }}</el-tag>
+        <small v-if="publishedVersionNo">发布版本 v{{ publishedVersionNo }}</small>
+      </div>
     </div>
 
     <el-alert
@@ -19,6 +20,15 @@
       :closable="false"
       title="后端不可用，当前显示演示数据"
       :description="runtimeError"
+    />
+    <el-alert
+      v-if="runtimeNotice"
+      class="runtime-alert"
+      type="info"
+      show-icon
+      :closable="false"
+      title="数据源能力提示"
+      :description="runtimeNotice"
     />
 
     <section v-if="showSearchPanel" class="search-card">
@@ -102,7 +112,7 @@
       <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
     </section>
 
-    <RequestInspector :request="lastRequest" />
+    <RequestInspector :request="lastRequest" :requests="requestHistory" />
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
       <el-empty v-if="formFields.length === 0" description="暂无表单字段" :image-size="70" />
@@ -151,7 +161,7 @@ const isDraftPreview = computed(() => route.query.mode === 'draft')
 const runtimeMode = computed(() => (isDraftPreview.value ? 'draft' : 'published'))
 const statusText = ref('正在加载运行态页面...')
 let syncSchemaModels = () => {}
-const { pageSchema, pageStatus, loadSchema: loadPageSchema } = usePageSchema({
+const { pageSchema, pageStatus, publishedVersionNo, loadSchema: loadPageSchema } = usePageSchema({
   pageId,
   syncModels: () => syncSchemaModels(),
 })
@@ -166,8 +176,10 @@ const {
   recordRows,
   statsRows,
   runtimeError,
+  runtimeNotice,
   isOffline,
   lastRequest,
+  requestHistory,
   pagination,
   loadRecords,
   resetSearch,
@@ -289,6 +301,17 @@ async function loadSchema() {
 .section-title span,
 .table-toolbar span,
 .pagination-row {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.runtime-status {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.runtime-status small {
   color: #6b7280;
   font-size: 12px;
 }

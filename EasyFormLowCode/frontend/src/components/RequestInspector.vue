@@ -2,31 +2,39 @@
   <section class="request-inspector">
     <div class="request-inspector__header">
       <strong>请求观察面板</strong>
-      <span>{{ request ? `${request.method} ${request.status ?? '-'}` : '暂无请求' }}</span>
+      <span>{{ latestRequest ? `${latestRequest.method} ${latestRequest.status ?? '-'}` : '暂无请求' }}</span>
     </div>
 
-    <el-empty v-if="!request" description="最近一次请求会显示在这里" :image-size="52" />
+    <el-empty v-if="!latestRequest" description="请求记录会显示在这里" :image-size="52" />
+
+    <el-table v-else-if="normalizedRequests.length > 1" :data="normalizedRequests" size="small" max-height="260">
+      <el-table-column prop="method" label="方法" width="76" />
+      <el-table-column label="状态" width="68"><template #default="{ row }">{{ row.status ?? '-' }}</template></el-table-column>
+      <el-table-column label="耗时" width="80"><template #default="{ row }">{{ row.durationMs }} ms</template></el-table-column>
+      <el-table-column prop="url" label="请求地址" min-width="220" show-overflow-tooltip />
+      <el-table-column label="结果" min-width="140" show-overflow-tooltip><template #default="{ row }">{{ row.error || 'OK' }}</template></el-table-column>
+    </el-table>
 
     <dl v-else class="request-inspector__body">
       <div>
         <dt>URL</dt>
-        <dd>{{ request.url }}</dd>
+        <dd>{{ latestRequest.url }}</dd>
       </div>
       <div>
         <dt>耗时</dt>
-        <dd>{{ request.durationMs }} ms</dd>
+        <dd>{{ latestRequest.durationMs }} ms</dd>
       </div>
       <div>
         <dt>Params</dt>
-        <dd>{{ formatJson(request.params) }}</dd>
+        <dd>{{ formatJson(latestRequest.params) }}</dd>
       </div>
       <div>
         <dt>Body</dt>
-        <dd>{{ formatJson(request.body) }}</dd>
+        <dd>{{ formatJson(latestRequest.body) }}</dd>
       </div>
       <div>
         <dt>结果</dt>
-        <dd>{{ request.error || 'OK' }}</dd>
+        <dd>{{ latestRequest.error || 'OK' }}</dd>
       </div>
     </dl>
   </section>
@@ -34,13 +42,21 @@
 
 <script setup>
 import { ElEmpty } from 'element-plus'
+import { computed } from 'vue'
 
-defineProps({
+const props = defineProps({
   request: {
     type: Object,
     default: null,
   },
+  requests: {
+    type: Array,
+    default: () => [],
+  },
 })
+
+const normalizedRequests = computed(() => (props.requests.length ? props.requests : props.request ? [props.request] : []))
+const latestRequest = computed(() => normalizedRequests.value[0] || null)
 
 function formatJson(value) {
   if (value === undefined || value === null || value === '') {

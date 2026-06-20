@@ -8,6 +8,8 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
   const initialPageId = resolvePageId(pageId)
   const pageSchema = reactive(normalizePageSchema(initialPageId))
   const pageStatus = ref('draft')
+  const publishedVersionNo = ref(null)
+  const publishedAt = ref('')
   const schemaLoading = ref(false)
   const schemaError = ref('')
   const schemaOffline = ref(false)
@@ -31,10 +33,14 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
       const result = await (published ? getPublishedPage : getPage)(resolvePageId(pageId))
       replaceSchema(result.schema_json)
       pageStatus.value = result.status
+      publishedVersionNo.value = result.published_version_no ?? null
+      publishedAt.value = result.published_at || ''
       return result
     } catch (error) {
       replaceSchema(normalizePageSchema(resolvePageId(pageId)))
       pageStatus.value = 'draft'
+      publishedVersionNo.value = null
+      publishedAt.value = ''
       schemaError.value = error?.message || 'Failed to load PageSchema'
       schemaOffline.value = true
       return null
@@ -50,6 +56,8 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
   return {
     pageSchema,
     pageStatus,
+    publishedVersionNo,
+    publishedAt,
     schemaLoading,
     schemaError,
     schemaOffline,

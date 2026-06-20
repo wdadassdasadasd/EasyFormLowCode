@@ -1,5 +1,6 @@
 import sys
 import uuid
+import json
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,11 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Page, PageRecord, PageVersion  # noqa: E402,F401
+
+
+CONTRACT_FIXTURE = json.loads(
+    (BACKEND_ROOT.parent / "test" / "fixtures" / "page-schema-contract.json").read_text(encoding="utf-8"),
+)
 
 
 @pytest.fixture()
@@ -152,6 +158,8 @@ def test_publish_uses_snapshot_until_republished(client):
     publish_response = client.post("/api/pages/publish_page/publish")
     assert publish_response.status_code == 200
     assert publish_response.json()["schema_json"]["title"] == "Published Title"
+    assert publish_response.json()["published_version_no"] == 1
+    assert publish_response.json()["published_at"]
 
     draft_response = client.put(
         "/api/pages/publish_page/schema",
@@ -232,7 +240,7 @@ def test_runtime_mode_uses_published_schema_snapshot(client):
 
     record_response = client.post(
         "/api/runtime/pages/runtime_mode_page/records",
-        json={"data": {"name": "alpha", "status": "enabled"}},
+        json={"data": {"name": "alpha"}},
     )
     assert record_response.status_code == 200
 
@@ -248,8 +256,117 @@ def test_runtime_mode_uses_published_schema_snapshot(client):
 
     draft_status_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=draft&status=enabled")
     assert draft_status_search.status_code == 200
-    assert draft_status_search.json()["total"] == 1
+    assert draft_status_search.json()["total"] == 0
 
     published_name_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=published&name=alp")
     assert published_name_search.status_code == 200
     assert published_name_search.json()["total"] == 1
+
+
+def test_project_page_lifecycle_uses_crud_template_and_cascades_data(client):
+    project_response = client.post("/api/projects", json={"name": "运营后台"})
+    assert project_response.status_code == 201
+    project = project_response.json()
+
+    page_response = client.post(
+        f"/api/projects/{project['id']}/pages",
+        json={"page_id": "customer_manage", "name": "客户管理"},
+    )
+    assert page_response.status_code == 201
+    assert page_response.json()["project_id"] == project["id"]
+
+    schema_response = client.get("/api/pages/customer_manage")
+    assert schema_response.status_code == 200
+    assert {field["prop"] for field in schema_response.json()["schema_json"]["fields"]} >= {"username", "status"}
+
+    record_response = client.post(
+        "/api/runtime/pages/customer_manage/records",
+        json={"data": {"username": "customer_a", "status": "enabled"}},
+    )
+    assert record_response.status_code == 200
+
+    delete_response = client.delete("/api/pages/customer_manage")
+    assert delete_response.status_code == 200
+    assert client.get(f"/api/projects/{project['id']}/pages").json() == []
+
+
+def test_runtime_rejects_invalid_record_and_batch_delete_is_atomic(client):
+    page_schema = {
+        "schemaVersion": 1,
+        "id": "validated_page",
+        "title": "Validated",
+        "pageType": "crud",
+        "fields": [
+            {
+                "id": "field_status",
+                "label": "Status",
+                "prop": "status",
+                "type": "select",
+                "required": True,
+                "searchable": True,
+                "tableVisible": True,
+                "formVisible": True,
+                "options": [{"label": "Enabled", "value": "enabled"}],
+            }
+        ],
+    }
+    assert client.put(
+        "/api/pages/validated_page/schema",
+        json={"name": "Validated", "schema_json": page_schema},
+    ).status_code == 200
+
+    invalid = client.post("/api/runtime/pages/validated_page/records", json={"data": {"status": "disabled"}})
+    assert invalid.status_code == 422
+
+    first = client.post("/api/runtime/pages/validated_page/records", json={"data": {"status": "enabled"}}).json()
+    second = client.post("/api/runtime/pages/validated_page/records", json={"data": {"status": "enabled"}}).json()
+    missing = client.request(
+        "DELETE",
+        "/api/runtime/pages/validated_page/records",
+        json={"record_ids": [first["id"], second["id"] + 999]},
+    )
+    assert missing.status_code == 404
+    assert client.get("/api/runtime/pages/validated_page/records").json()["total"] == 2
+
+    duplicate = client.request(
+        "DELETE",
+        "/api/runtime/pages/validated_page/records",
+        json={"record_ids": [first["id"], first["id"]]},
+    )
+    assert duplicate.status_code == 422
+    assert client.get("/api/runtime/pages/validated_page/records").json()["total"] == 2
+
+    deleted = client.request(
+        "DELETE",
+        "/api/runtime/pages/validated_page/records",
+        json={"record_ids": [first["id"], second["id"]]},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] == 2
+
+
+def test_shared_schema_contract_fixture_has_matching_backend_validation(client):
+    valid = client.put(
+        "/api/pages/contract_page/schema",
+        json={"name": "Contract Page", "schema_json": CONTRACT_FIXTURE["validPageSchema"]},
+    )
+    assert valid.status_code == 200
+    invalid = client.put(
+        "/api/pages/contract_invalid/schema",
+        json={"name": "Invalid", "schema_json": CONTRACT_FIXTURE["invalidPageSchema"]},
+    )
+    assert invalid.status_code == 422
+
+
+def test_project_and_page_names_reject_blank_strings(client):
+    blank_project = client.post("/api/projects", json={"name": "   "})
+    assert blank_project.status_code == 422
+    assert blank_project.json()["detail"] == "project name is required"
+
+    project = client.post("/api/projects", json={"name": "Operations"}).json()
+    blank_page = client.post(
+        f"/api/projects/{project['id']}/pages",
+        json={"page_id": "ops_users", "name": "   "},
+    )
+    assert blank_page.status_code == 422
+    assert blank_page.json()["detail"] == "page name is required"

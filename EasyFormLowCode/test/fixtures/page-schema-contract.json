@@ -1,0 +1,35 @@
+{
+  "validPageSchema": {
+    "schemaVersion": 1,
+    "id": "contract_page",
+    "title": "Contract Page",
+    "pageType": "crud",
+    "datasource": { "mode": "runtime" },
+    "fields": [
+      {
+        "id": "field_status",
+        "label": "Status",
+        "prop": "status",
+        "type": "select",
+        "required": true,
+        "searchable": true,
+        "tableVisible": true,
+        "formVisible": true,
+        "options": [
+          { "label": "Enabled", "value": "enabled" },
+          { "label": "Disabled", "value": "disabled" }
+        ]
+      }
+    ],
+    "charts": [
+      { "id": "statusPie", "type": "pie", "dimension": "status", "metric": "count" }
+    ]
+  },
+  "invalidPageSchema": {
+    "schemaVersion": 1,
+    "fields": [
+      { "id": "duplicate", "prop": "name", "type": "input" },
+      { "id": "duplicate", "prop": "name", "type": "unknown" }
+    ]
+  }
+}

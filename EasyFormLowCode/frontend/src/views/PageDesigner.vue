@@ -20,6 +20,7 @@
       :is-dragging-material="isDraggingMaterial"
       :is-offline="isOffline"
       :last-request="lastRequest"
+      :request-history="requestHistory"
       :metric-cards="metricCards"
       :normalized-charts="normalizedCharts"
       :page-actions="pageSchema.actions"
@@ -138,7 +139,7 @@ import {
   normalizeOptions,
   normalizeProp,
 } from '../schema/fieldTypes'
-import { normalizePageSchema } from '../schema/pageSchema'
+import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
 
@@ -178,6 +179,7 @@ const {
   runtimeError,
   isOffline,
   lastRequest,
+  requestHistory,
   pagination,
   loadRecords,
   resetSearch,
@@ -336,6 +338,11 @@ async function loadSchema() {
 }
 
 async function saveSchema() {
+  const validation = validatePageSchema(toPlainSchema())
+  if (!validation.valid) {
+    ElMessage.error(`页面配置不合法：${validation.errors[0]}`)
+    return
+  }
   try {
     const result = await savePageSchemaRequest(pageId.value, {
       name: pageSchema.title,
@@ -649,5 +656,17 @@ defineExpose({
   .designer {
     grid-template-columns: 220px minmax(0, 1fr) 340px;
   }
+}
+
+@media (max-width: 1080px) {
+  .designer {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+  }
+
+  .designer > :nth-child(1) { order: 2; }
+  .designer > :nth-child(2) { order: 1; }
+  .designer > :nth-child(3) { order: 3; }
 }
 </style>

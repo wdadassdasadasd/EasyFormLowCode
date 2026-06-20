@@ -4,6 +4,7 @@ import { computed, reactive, ref, unref } from 'vue'
 import {
   createRuntimeRecord,
   deleteRuntimeRecord,
+  deleteRuntimeRecords,
   getRuntimeStats,
   listRuntimeRecords,
   updateRuntimeRecord,
@@ -31,25 +32,31 @@ export function useRuntimeCrud({
   const recordsLoading = ref(false)
   const submitLoading = ref(false)
   const dialogVisible = ref(false)
-  const dialogTitle = ref('新增数据')
+  const dialogTitle = ref('Create record')
   const dialogMode = ref('create')
   const editingRecordId = ref(null)
   const selectedRows = ref([])
   const recordRows = ref([])
   const statsRows = ref([])
   const runtimeError = ref('')
+  const runtimeNotice = ref('')
   const isOffline = ref(false)
   const lastRequest = ref(null)
+  const requestHistory = ref([])
   const pagination = reactive({
     currentPage: 1,
     pageSize: 10,
     total: 0,
   })
   const datasource = computed(() => unref(pageSchema)?.datasource || unref(pageSchema)?.api || {})
+  const readonlyRuntime = computed(() => datasource.value?.mode === 'rest')
 
   async function loadRecords() {
     recordsLoading.value = true
     runtimeError.value = ''
+    runtimeNotice.value = readonlyRuntime.value
+      ? 'External datasource is read-only in runtime preview. Create, edit, delete, and stats are disabled.'
+      : ''
     isOffline.value = false
 
     try {
@@ -80,8 +87,8 @@ export function useRuntimeCrud({
   }
 
   async function loadStats(filters = buildFilters()) {
-    if (datasource.value?.mode === 'rest') {
-      statsRows.value = [...recordRows.value]
+    if (readonlyRuntime.value) {
+      statsRows.value = []
       return
     }
 
@@ -108,18 +115,24 @@ export function useRuntimeCrud({
   }
 
   function openCreateDialog() {
+    if (!ensureRuntimeDatasource('create')) {
+      return
+    }
     dialogMode.value = 'create'
     editingRecordId.value = null
-    dialogTitle.value = '新增数据'
+    dialogTitle.value = 'Create record'
     clearFormErrors()
     resetFieldValues(dialogForm, formFields.value)
     dialogVisible.value = true
   }
 
   function openEditDialog(row) {
+    if (!ensureRuntimeDatasource('edit')) {
+      return
+    }
     dialogMode.value = 'edit'
     editingRecordId.value = row.id
-    dialogTitle.value = '编辑数据'
+    dialogTitle.value = 'Edit record'
     clearFormErrors()
     Object.assign(dialogForm, buildFormValues(formFields.value, row))
     dialogVisible.value = true
@@ -136,29 +149,55 @@ export function useRuntimeCrud({
       return
     }
 
-    await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 条数据吗？`, '删除确认', { type: 'warning' })
-    await Promise.all(selectedRows.value.map((row) => deleteRecord(row, false)))
-    if (selectedRows.value.length >= recordRows.value.length && pagination.currentPage > 1) {
-      pagination.currentPage -= 1
+    try {
+      if (!ensureRuntimeDatasource('batch delete')) {
+        return
+      }
+      await ElMessageBox.confirm(
+        `Delete ${selectedRows.value.length} selected records?`,
+        'Delete records',
+        { type: 'warning' },
+      )
+      await deleteRuntimeRecords(
+        unref(pageId),
+        selectedRows.value.map((row) => row.id),
+        { datasource: datasource.value, onRequestSettled: trackRequest },
+      )
+      if (selectedRows.value.length >= recordRows.value.length && pagination.currentPage > 1) {
+        pagination.currentPage -= 1
+      }
+      selectedRows.value = []
+      ElMessage.success('Delete successful')
+      await loadRecords()
+    } catch (error) {
+      if (!isCancelError(error)) {
+        ElMessage.error(error?.message || 'Batch delete failed')
+      }
     }
-    selectedRows.value = []
-    ElMessage.success('删除成功')
-    await loadRecords()
   }
 
   async function deleteRecord(row, reload = true) {
-    if (reload) {
-      await ElMessageBox.confirm('确认删除这条数据吗？', '删除确认', { type: 'warning' })
-    }
+    try {
+      if (!ensureRuntimeDatasource('delete')) {
+        return
+      }
+      if (reload) {
+        await ElMessageBox.confirm('Delete this record?', 'Delete record', { type: 'warning' })
+      }
 
-    await deleteRuntimeRecord(unref(pageId), row.id, {
-      datasource: datasource.value,
-      onRequestSettled: trackRequest,
-    })
+      await deleteRuntimeRecord(unref(pageId), row.id, {
+        datasource: datasource.value,
+        onRequestSettled: trackRequest,
+      })
 
-    if (reload) {
-      ElMessage.success('删除成功')
-      await loadRecords()
+      if (reload) {
+        ElMessage.success('Delete successful')
+        await loadRecords()
+      }
+    } catch (error) {
+      if (!isCancelError(error)) {
+        ElMessage.error(error?.message || 'Delete failed')
+      }
     }
   }
 
@@ -172,6 +211,9 @@ export function useRuntimeCrud({
     submitLoading.value = true
 
     try {
+      if (!ensureRuntimeDatasource(dialogMode.value === 'edit' ? 'edit' : 'create')) {
+        return
+      }
       if (dialogMode.value === 'edit') {
         await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm), {
           datasource: datasource.value,
@@ -185,10 +227,10 @@ export function useRuntimeCrud({
       }
 
       dialogVisible.value = false
-      ElMessage.success(dialogMode.value === 'edit' ? '编辑成功' : '新增成功')
+      ElMessage.success(dialogMode.value === 'edit' ? 'Edit successful' : 'Create successful')
       await loadRecords()
     } catch (error) {
-      ElMessage.error(error?.message || '提交失败，请确认后端服务已启动')
+      ElMessage.error(error?.message || 'Submit failed')
     } finally {
       submitLoading.value = false
     }
@@ -213,7 +255,17 @@ export function useRuntimeCrud({
   }
 
   function trackRequest(request) {
-    lastRequest.value = request
+    const sanitized = sanitizeRequest(request)
+    lastRequest.value = sanitized
+    requestHistory.value = [sanitized, ...requestHistory.value].slice(0, 20)
+  }
+
+  function ensureRuntimeDatasource(actionLabel = 'write') {
+    if (!readonlyRuntime.value) {
+      return true
+    }
+    ElMessage.warning(`External datasource does not support ${actionLabel}`)
+    return false
   }
 
   return {
@@ -227,8 +279,11 @@ export function useRuntimeCrud({
     recordRows,
     statsRows,
     runtimeError,
+    runtimeNotice,
     isOffline,
     lastRequest,
+    requestHistory,
+    readonlyRuntime,
     pagination,
     loadRecords,
     loadStats,
@@ -241,6 +296,25 @@ export function useRuntimeCrud({
     deleteRecord,
     submitDialog,
   }
+}
+
+function sanitizeRequest(request = {}) {
+  return {
+    ...request,
+    params: redactValue(request.params),
+    body: redactValue(request.body),
+  }
+}
+
+function redactValue(value) {
+  if (Array.isArray(value)) return value.map(redactValue)
+  if (value && typeof value === 'object') {
+    return Object.entries(value).reduce((result, [key, item]) => {
+      result[key] = /token|password|secret/i.test(key) ? '***' : redactValue(item)
+      return result
+    }, {})
+  }
+  return value
 }
 
 function normalizeRecordListResponse(result) {
@@ -262,4 +336,8 @@ function normalizeRecordListResponse(result) {
     page: Number(result?.page ?? 1),
     pageSize: Number(result?.pageSize ?? (items.length || 10)),
   }
+}
+
+function isCancelError(error) {
+  return error === 'cancel' || error === 'close' || error === 'closed'
 }

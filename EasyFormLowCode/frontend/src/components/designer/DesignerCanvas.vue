@@ -203,7 +203,7 @@
       <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
     </section>
 
-    <RequestInspector :request="lastRequest" />
+    <RequestInspector :request="lastRequest" :requests="requestHistory" />
   </section>
 </template>
 
@@ -245,6 +245,10 @@ defineProps({
   lastRequest: {
     type: Object,
     default: null,
+  },
+  requestHistory: {
+    type: Array,
+    default: () => [],
   },
   metricCards: {
     type: Array,

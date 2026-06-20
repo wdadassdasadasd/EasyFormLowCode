@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { normalizePageSchema, validatePageSchema } from '../../../frontend/src/schema/pageSchema'
+import contractFixture from '../../fixtures/page-schema-contract.json'
 
 describe('pageSchema normalization', () => {
   it('fills page defaults and normalizes fields through one entrypoint', () => {
@@ -56,5 +57,27 @@ describe('pageSchema normalization', () => {
     expect(result.valid).toBe(false)
     expect(result.errors).toContain('fields must be an array')
     expect(result.errors).toContain('datasource.mode must be runtime or rest')
+  })
+
+  it('rejects duplicate field identities and chart dimensions outside the schema', () => {
+    const result = validatePageSchema({
+      schemaVersion: 1,
+      fields: [
+        { id: 'name', prop: 'name', type: 'input' },
+        { id: 'name', prop: 'name', type: 'select', options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'a' }] },
+      ],
+      charts: [{ id: 'missing', type: 'pie', dimension: 'missing' }],
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('duplicate field id: name')
+    expect(result.errors).toContain('duplicate field prop: name')
+    expect(result.errors).toContain('fields[1].options values must be unique')
+    expect(result.errors).toContain('charts[0].dimension must reference a field prop')
+  })
+
+  it('accepts the shared frontend/backend contract fixture', () => {
+    expect(validatePageSchema(contractFixture.validPageSchema)).toEqual({ valid: true, errors: [] })
+    expect(validatePageSchema(contractFixture.invalidPageSchema).valid).toBe(false)
   })
 })

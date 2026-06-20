@@ -25,6 +25,8 @@ export function buildVueSfc(schema) {
       <el-button v-if="pageActions.create" type="primary" @click="openCreateDialog">新增</el-button>
     </header>
 
+    <el-alert v-if="runtimeError" type="error" :title="runtimeError" show-icon :closable="false" />
+
     <el-form v-if="showSearchPanel" class="search-form" :model="searchModel" label-position="top">
 ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
       <div class="search-actions">
@@ -33,11 +35,15 @@ ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
       </div>
     </el-form>
 
-    <el-table :data="rows" border>
+    <el-table v-loading="loading" :data="rows" border>
 ${pageSelectionColumn(normalizedSchema.actions)}
 ${tableFields.map((field) => `      ${getFieldTypeConfig(field.type).exporter.table(field)}`).join('\n')}
 ${renderOperationColumn(normalizedSchema.actions)}
     </el-table>
+    <div class="pagination-row">
+      <span>共 {{ pagination.total }} 条</span>
+      <el-pagination v-model:current-page="pagination.currentPage" v-model:page-size="pagination.pageSize" layout="prev, pager, next, sizes" :page-sizes="[5, 10, 20, 50]" :total="pagination.total" @change="loadRecords" />
+    </div>
 
     <section class="metrics-grid">
       <div v-for="metric in metricCards" :key="metric.id" class="metric-card">
@@ -79,8 +85,12 @@ import VChart from 'vue-echarts'
 use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
 const DATASOURCE = ${JSON.stringify(normalizedSchema.datasource, null, 2)}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const PAGE_ACTIONS = ${JSON.stringify(normalizedSchema.actions, null, 2)}
 const rows = ref([])
+const loading = ref(false)
+const runtimeError = ref('')
+const pagination = reactive({ currentPage: 1, pageSize: 10, total: 0 })
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增数据')
 const editingRecordId = ref(null)
@@ -137,15 +147,27 @@ const chartOptions = computed(() => {
 })
 
 async function loadRecords() {
-  const response = await requestDatasource('list', { params: buildSearchParams() })
-  const result = normalizeListResponse(response)
-  rows.value = result.items
+  loading.value = true
+  runtimeError.value = ''
+  try {
+    const response = await requestDatasource('list', { params: { ...buildSearchParams(), page: pagination.currentPage, pageSize: pagination.pageSize } })
+    const result = normalizeListResponse(response)
+    rows.value = result.items
+    pagination.total = result.total
+  } catch (error) {
+    rows.value = []
+    pagination.total = 0
+    runtimeError.value = error?.message || '数据请求失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function resetSearch() {
   Object.keys(searchModel).forEach((key) => {
     searchModel[key] = ''
   })
+  pagination.currentPage = 1
   loadRecords()
 }
 
@@ -232,14 +254,17 @@ async function requestDatasource(type, { body, params = {}, recordId } = {}) {
   }
 
   const url = requestUrl(type, recordId)
-  const response = await fetch(query.size ? \`\${url}?\${query}\` : url, {
+  const targetUrl = /^https?:\\/\\//.test(url) ? url : \`\${API_BASE_URL.replace(/\\/$/, '')}\${url}\`
+  const response = await fetch(query.size ? \`\${targetUrl}?\${query}\` : targetUrl, {
     method: type === 'list' ? 'GET' : type === 'create' ? 'POST' : type === 'update' ? 'PUT' : 'DELETE',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })
 
   const text = await response.text()
-  return text ? JSON.parse(text) : null
+  const payload = text ? JSON.parse(text) : null
+  if (!response.ok) throw new Error(payload?.detail || \`请求失败（\${response.status}）\`)
+  return payload
 }
 
 function normalizeListResponse(result) {
@@ -255,6 +280,7 @@ function normalizeListResponse(result) {
         ...(item || {}),
       }
     }),
+    total: Number(result?.total ?? source.length),
   }
 }
 

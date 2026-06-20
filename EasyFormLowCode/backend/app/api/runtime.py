@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.page_schema import RuntimeRecordListResponse, RuntimeRecordPayload, RuntimeRecordResponse, RuntimeStatsResponse
+from app.schemas.page_schema import BatchDeletePayload, RuntimeRecordListResponse, RuntimeRecordPayload, RuntimeRecordResponse, RuntimeStatsResponse
 from app.services.page_service import (
     create_page_record,
+    delete_page_records,
     delete_page_record,
     list_page_records,
     list_page_record_stats,
@@ -62,7 +63,10 @@ def create_runtime_record(
     payload: RuntimeRecordPayload,
     db: Session = Depends(get_db),
 ):
-    record = create_page_record(db, page_id, payload.data)
+    try:
+        record = create_page_record(db, page_id, payload.data)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return record_to_response(record)
 
 
@@ -76,7 +80,10 @@ def update_runtime_record(
     payload: RuntimeRecordPayload,
     db: Session = Depends(get_db),
 ):
-    record = update_page_record(db, page_id, record_id, payload.data)
+    try:
+        record = update_page_record(db, page_id, record_id, payload.data)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
     if not record:
         raise HTTPException(status_code=404, detail="record not found")
@@ -96,3 +103,17 @@ def delete_runtime_record(
         raise HTTPException(status_code=404, detail="record not found")
 
     return {"ok": True}
+
+
+@router.delete("/{page_id}/records")
+def delete_runtime_records(
+    page_id: str,
+    payload: BatchDeletePayload,
+    db: Session = Depends(get_db),
+):
+    try:
+        deleted = delete_page_records(db, page_id, payload.record_ids)
+    except ValueError as error:
+        status_code = 404 if "not found" in str(error) else 422
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+    return {"ok": True, "deleted": deleted}
