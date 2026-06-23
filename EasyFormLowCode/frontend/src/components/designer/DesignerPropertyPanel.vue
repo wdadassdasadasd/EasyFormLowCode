@@ -27,6 +27,9 @@
 
     <section v-if="pageSchema.datasource?.mode === 'rest'" class="property-section">
       <div class="section-title">REST 数据源</div>
+      <div class="readonly-note">
+        当前 REST 数据源按只读模式处理，运行态不会展示新增、编辑、删除和批量删除入口。
+      </div>
       <el-form label-position="top">
         <el-form-item label="列表 URL">
           <el-input :model-value="pageSchema.datasource?.listUrl" @input="updateDatasource('listUrl', $event)" />
@@ -47,7 +50,7 @@
       <div class="section-title">动作开关</div>
       <el-form label-position="top" class="action-form">
         <el-form-item v-for="(enabled, actionKey) in pageSchema.actions" :key="actionKey" :label="actionLabels[actionKey] || actionKey">
-          <el-switch :model-value="enabled" @change="updateAction(actionKey, $event)" />
+          <el-switch :model-value="enabled" :disabled="isActionCapabilityLocked(actionKey)" @change="updateAction(actionKey, $event)" />
         </el-form-item>
       </el-form>
     </section>
@@ -57,12 +60,14 @@
         <div class="section-title">{{ group.label }}</div>
         <el-form label-position="top">
           <el-form-item v-for="setter in group.items" :key="setter.prop" :label="setter.label" :required="setter.required">
-            <el-input
-              v-if="setter.setter === 'input' && setter.prop !== 'defaultValue'"
-              :model-value="selectedField[setter.prop]"
-              @input="patchField({ [setter.prop]: $event }, setter.structural)"
-              @change="handleSetterCommit(setter)"
-            />
+            <template v-if="setter.setter === 'input' && setter.prop !== 'defaultValue'">
+              <el-input
+                :model-value="selectedField[setter.prop]"
+                @input="patchField({ [setter.prop]: $event }, setter.structural)"
+                @change="handleSetterCommit(setter)"
+              />
+              <div v-if="setter.prop === 'prop' && fieldPropFeedback" class="field-feedback">{{ fieldPropFeedback }}</div>
+            </template>
 
             <el-input
               v-else-if="setter.setter === 'input' && setter.prop === 'defaultValue' && !usesOptionDefaultValue"
@@ -200,6 +205,14 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  datasourceCapabilities: {
+    type: Object,
+    default: () => ({}),
+  },
+  fieldPropFeedback: {
+    type: String,
+    default: '',
+  },
   selectedArea: {
     type: String,
     default: 'search',
@@ -252,6 +265,13 @@ const areaLabels = {
 
 const selectedAreaLabel = computed(() => areaLabels[props.selectedArea] || '页面设置')
 
+const actionCapabilityMap = {
+  create: 'create',
+  edit: 'update',
+  delete: 'delete',
+  batchDelete: 'batchDelete',
+}
+
 function patchField(patch, structural = false) {
   if (!props.selectedField) {
     return
@@ -282,6 +302,11 @@ function updateAction(key, value) {
       [key]: Boolean(value),
     },
   })
+}
+
+function isActionCapabilityLocked(actionKey) {
+  const capabilityKey = actionCapabilityMap[actionKey]
+  return capabilityKey ? props.datasourceCapabilities?.[capabilityKey] === false : false
 }
 
 function updateOption(index, key, value) {
@@ -354,6 +379,14 @@ function updateChart(index, key, value) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 10px;
+}
+
+.readonly-note,
+.field-feedback {
+  margin-top: 8px;
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .option-setter,

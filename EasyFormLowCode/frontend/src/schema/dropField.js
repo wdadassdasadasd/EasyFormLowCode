@@ -19,6 +19,9 @@ export function createDroppedField(type = 'input', area = FIELD_DROP_AREAS.table
 
   field.prop = ensureUniqueProp(field.prop, field.id, fields)
 
+  Object.values(AREA_VISIBILITY_FLAGS).forEach((flag) => {
+    field[flag] = false
+  })
   if (visibilityFlag) {
     field[visibilityFlag] = true
   }

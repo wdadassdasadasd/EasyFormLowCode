@@ -1,6 +1,16 @@
 <template>
   <div class="designer">
+    <div v-if="isCompactLayout" class="designer-compact-toolbar">
+      <el-button plain size="small" @click="showMaterialPanel = !showMaterialPanel">
+        {{ showMaterialPanel ? '收起组件库' : '展开组件库' }}
+      </el-button>
+      <el-button plain size="small" @click="showPropertyPanel = !showPropertyPanel">
+        {{ showPropertyPanel ? '收起属性面板' : '展开属性面板' }}
+      </el-button>
+    </div>
+
     <DesignerMaterialPanel
+      v-show="!isCompactLayout || showMaterialPanel"
       :icon-map="iconMap"
       :material-drag-group="materialDragGroup"
       :material-groups="materialGroups"
@@ -9,7 +19,7 @@
       @add-field="addField"
       @material-drag-end="handleMaterialDragEnd"
       @material-drag-start="handleMaterialDragStart"
-      @select-area="selectedArea = $event"
+      @select-area="handleAreaSelect"
     />
 
     <DesignerCanvas
@@ -23,11 +33,12 @@
       :request-history="requestHistory"
       :metric-cards="metricCards"
       :normalized-charts="normalizedCharts"
-      :page-actions="pageSchema.actions"
+      :page-actions="effectivePageActions"
       :page-schema="pageSchema"
       :pagination="pagination"
       :record-rows="recordRows"
       :records-loading="recordsLoading"
+      :readonly-runtime="readonlyRuntime"
       :runtime-error="runtimeError"
       :search-model="searchModel"
       :searchable-fields="searchableFields"
@@ -45,7 +56,7 @@
       @open-edit="openEditDialog"
       @open-selected-edit="openSelectedEditDialog"
       @reset-search="resetSearch"
-      @select-area="selectedArea = $event"
+      @select-area="handleAreaSelect"
       @select-field="selectField"
       @update-dialog-field="updateDialogField"
       @update-pagination="updatePagination"
@@ -54,6 +65,9 @@
     />
 
     <DesignerPropertyPanel
+      v-show="!isCompactLayout || showPropertyPanel"
+      :datasource-capabilities="datasourceCapabilities"
+      :field-prop-feedback="fieldPropFeedback"
       :material-field-types="materialFieldTypes"
       :page-schema="pageSchema"
       :selected-area="selectedArea"
@@ -116,8 +130,8 @@ import {
   Tickets,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import DesignerCanvas from '../components/designer/DesignerCanvas.vue'
 import DesignerMaterialPanel from '../components/designer/DesignerMaterialPanel.vue'
@@ -126,6 +140,8 @@ import DesignerPropertyPanel from '../components/designer/DesignerPropertyPanel.
 import { publishPage, savePageSchema as savePageSchemaRequest } from '../api/pages'
 import { listPageVersions, restorePageVersion } from '../api/versions'
 import { usePageSchema } from '../composables/usePageSchema'
+import { useSchemaHistory } from '../composables/useSchemaHistory'
+import { setLocalPreview } from '../composables/previewSession'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
@@ -133,31 +149,36 @@ import { buildDemoRows } from '../schema/defaultSchema'
 import { createDroppedField } from '../schema/dropField'
 import {
   MATERIAL_FIELD_TYPES,
-  ensureUniqueProp,
   getPropertySetters,
   normalizeField,
   normalizeOptions,
-  normalizeProp,
 } from '../schema/fieldTypes'
 import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
+import { applyDatasourceCapabilityToActions, normalizeEditableFieldProp } from '../utils/schemaEditor'
 
 const emit = defineEmits(['editor-status-change'])
 const route = useRoute()
 const router = useRouter()
 const selectedFieldId = ref('')
 const selectedArea = ref('search')
+const fieldPropFeedback = ref('')
 const isDraggingMaterial = ref(false)
+const isCompactLayout = ref(false)
+const showMaterialPanel = ref(true)
+const showPropertyPanel = ref(true)
 const statusText = ref('正在加载页面配置...')
 const editorStatus = ref('loading')
 const versionDrawerVisible = ref(false)
 const versions = ref([])
 const selectedVersion = ref(null)
 const exportDialogVisible = ref(false)
+const bypassUnsavedConfirm = ref(false)
 const pageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
 const runtimeMode = 'draft'
 let syncSchemaModels = () => {}
+const schemaHistory = useSchemaHistory()
 
 const { pageSchema, pageStatus, replaceSchema, loadSchema: loadPageSchema, toPlainSchema } = usePageSchema({
   pageId,
@@ -180,6 +201,8 @@ const {
   isOffline,
   lastRequest,
   requestHistory,
+  readonlyRuntime,
+  datasourceCapabilities,
   pagination,
   loadRecords,
   resetSearch,
@@ -271,6 +294,7 @@ const setterGroups = computed(() => {
     .filter((group) => group.items.length > 0)
 })
 const usesOptionDefaultValue = computed(() => ['select', 'radio'].includes(selectedField.value?.type))
+const effectivePageActions = computed(() => applyDatasourceCapabilityToActions(pageSchema.actions || {}, pageSchema.datasource))
 const editorStatusText = computed(() => {
   const statusMap = {
     loading: '正在加载',
@@ -317,13 +341,35 @@ watch(
   { deep: true },
 )
 
+watch(selectedFieldId, () => {
+  fieldPropFeedback.value = ''
+})
+
 watch(pageId, async () => {
   setEditorStatus('loading')
   await refreshDesigner()
 })
 
 onMounted(async () => {
+  syncCompactLayout()
   await refreshDesigner()
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('keydown', handleHistoryShortcut)
+  window.addEventListener('resize', syncCompactLayout)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('keydown', handleHistoryShortcut)
+  window.removeEventListener('resize', syncCompactLayout)
+})
+
+onBeforeRouteLeave(async () => {
+  return confirmDiscardChanges()
+})
+
+onBeforeRouteUpdate(async () => {
+  return confirmDiscardChanges()
 })
 
 async function refreshDesigner() {
@@ -333,6 +379,7 @@ async function refreshDesigner() {
 
 async function loadSchema() {
   const result = await loadPageSchema()
+  schemaHistory.reset(toPlainSchema())
   setEditorStatus(result?.status === 'published' ? 'published' : result ? 'saved' : 'dirty')
   statusText.value = result ? '已从后端恢复页面配置' : '后端不可用，当前使用前端演示配置'
 }
@@ -418,6 +465,16 @@ function updatePagination(patch) {
 
 function selectField(fieldId) {
   selectedFieldId.value = fieldId
+  if (isCompactLayout.value) {
+    showPropertyPanel.value = true
+  }
+}
+
+function handleAreaSelect(area) {
+  selectedArea.value = area
+  if (isCompactLayout.value && ['search', 'table', 'form'].includes(area)) {
+    showMaterialPanel.value = true
+  }
 }
 
 function applyPagePatch(patch) {
@@ -432,7 +489,15 @@ function applyFieldPatch(fieldId, patch, structural = false) {
     return
   }
 
-  Object.assign(field, patch)
+  const nextPatch = { ...patch }
+  if ('prop' in nextPatch) {
+    const fallback = `${field.type}_${pageSchema.fields.indexOf(field) + 1}`
+    const normalizedProp = normalizeEditableFieldProp(nextPatch.prop, field.id, pageSchema.fields, fallback)
+    nextPatch.prop = normalizedProp.value
+    fieldPropFeedback.value = normalizedProp.message
+  }
+
+  Object.assign(field, nextPatch)
   if (Array.isArray(field.options)) {
     field.options = normalizeOptions(field.options)
   }
@@ -507,8 +572,9 @@ function normalizeSelectedFieldProp() {
   }
 
   const fallback = `${selectedField.value.type}_${pageSchema.fields.indexOf(selectedField.value) + 1}`
-  const normalizedProp = normalizeProp(selectedField.value.prop, fallback)
-  selectedField.value.prop = ensureUniqueProp(normalizedProp, selectedField.value.id, pageSchema.fields)
+  const normalizedProp = normalizeEditableFieldProp(selectedField.value.prop, selectedField.value.id, pageSchema.fields, fallback)
+  selectedField.value.prop = normalizedProp.value
+  fieldPropFeedback.value = normalizedProp.message
   syncModels()
   markSchemaDirty()
 }
@@ -557,15 +623,88 @@ function removeChart(index) {
 }
 
 function markSchemaDirty() {
+  schemaHistory.commit(toPlainSchema())
   setEditorStatus('dirty')
+}
+
+function undoSchema() {
+  const snapshot = schemaHistory.undo()
+  if (!snapshot) return
+  replaceSchema(snapshot)
+  setEditorStatus('dirty')
+}
+
+function redoSchema() {
+  const snapshot = schemaHistory.redo()
+  if (!snapshot) return
+  replaceSchema(snapshot)
+  setEditorStatus('dirty')
+}
+
+function handleHistoryShortcut(event) {
+  if (!event.ctrlKey && !event.metaKey) return
+  if (event.key.toLowerCase() === 'z') {
+    event.preventDefault()
+    event.shiftKey ? redoSchema() : undoSchema()
+  }
+}
+
+function syncCompactLayout() {
+  isCompactLayout.value = window.innerWidth <= 1080
+  if (!isCompactLayout.value) {
+    showMaterialPanel.value = true
+    showPropertyPanel.value = true
+  }
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedChanges()) {
+    return
+  }
+
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+function hasUnsavedChanges() {
+  return editorStatus.value === 'dirty'
+}
+
+async function confirmDiscardChanges() {
+  if (bypassUnsavedConfirm.value) {
+    bypassUnsavedConfirm.value = false
+    return true
+  }
+
+  if (!hasUnsavedChanges()) {
+    return true
+  }
+
+  try {
+    await ElMessageBox.confirm('当前页面有未保存修改，确认离开并放弃本地更改吗？', '未保存修改', {
+      type: 'warning',
+      confirmButtonText: '离开页面',
+      cancelButtonText: '继续编辑',
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function setEditorStatus(status) {
   editorStatus.value = status
 }
 
-function previewPage() {
-  router.push({ path: '/preview', query: { pageId: pageId.value, mode: 'draft' } })
+async function previewPage() {
+  setLocalPreview(pageId.value, toPlainSchema())
+  bypassUnsavedConfirm.value = true
+  try {
+    await router.push({ path: '/preview', query: { pageId: pageId.value, mode: 'draft', local: '1' } })
+  } catch (error) {
+    bypassUnsavedConfirm.value = false
+    throw error
+  }
 }
 
 function showVersion() {
@@ -607,6 +746,7 @@ async function restoreVersion(version) {
   try {
     const result = await restorePageVersion(pageId.value, version.id)
     replaceSchema(result.schema_json)
+    schemaHistory.reset(toPlainSchema())
     pageStatus.value = result.status
     setEditorStatus('saved')
     statusText.value = `已回滚到版本 ${version.version_no}`
@@ -638,8 +778,11 @@ defineExpose({
   previewPage,
   showVersion,
   exportSchema,
+  hasUnsavedChanges,
+  redoSchema,
   editorStatusText,
   editorStatusType,
+  undoSchema,
 })
 </script>
 
@@ -650,6 +793,10 @@ defineExpose({
   gap: 12px;
   height: calc(100vh - 88px);
   min-height: 760px;
+}
+
+.designer-compact-toolbar {
+  display: none;
 }
 
 @media (max-width: 1440px) {
@@ -663,6 +810,11 @@ defineExpose({
     grid-template-columns: minmax(0, 1fr);
     height: auto;
     min-height: 0;
+  }
+
+  .designer-compact-toolbar {
+    display: flex;
+    gap: 8px;
   }
 
   .designer > :nth-child(1) { order: 2; }

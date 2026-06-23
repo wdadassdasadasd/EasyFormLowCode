@@ -72,14 +72,14 @@
           <span>{{ tableFields.length }} 列 · 共 {{ pagination.total }} 条</span>
         </div>
         <div class="toolbar-actions">
-          <el-button v-if="pageActions.create" type="primary" :icon="Plus" @click.stop="emit('open-create')">新增</el-button>
-          <el-button v-if="pageActions.edit" :icon="EditPen" :disabled="selectedRows.length !== 1" @click.stop="emit('open-selected-edit')">编辑</el-button>
+          <el-button v-if="pageActions.create" type="primary" :icon="Plus" :disabled="readonlyRuntime" @click.stop="emit('open-create')">新增</el-button>
+          <el-button v-if="pageActions.edit" :icon="EditPen" :disabled="readonlyRuntime || selectedRows.length !== 1" @click.stop="emit('open-selected-edit')">编辑</el-button>
           <el-button
             v-if="pageActions.batchDelete"
             type="danger"
             plain
             :icon="Delete"
-            :disabled="selectedRows.length === 0"
+            :disabled="readonlyRuntime || selectedRows.length === 0"
             @click.stop="emit('delete-selected')"
           >
             删除
@@ -110,8 +110,8 @@
         </TableFieldColumn>
         <el-table-column v-if="pageActions.edit || pageActions.delete" label="操作" width="146" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="pageActions.edit" link type="primary" @click.stop="emit('open-edit', row)">编辑</el-button>
-            <el-button v-if="pageActions.delete" link type="danger" @click.stop="emit('delete-record', row)">删除</el-button>
+            <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click.stop="emit('open-edit', row)">编辑</el-button>
+            <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click.stop="emit('delete-record', row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -275,6 +275,10 @@ defineProps({
     default: () => [],
   },
   recordsLoading: {
+    type: Boolean,
+    default: false,
+  },
+  readonlyRuntime: {
     type: Boolean,
     default: false,
   },

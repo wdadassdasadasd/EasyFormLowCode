@@ -1,3 +1,4 @@
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { describe, expect, it } from 'vitest'
 
 import { buildSchemaJson, buildVueSfc } from '../../../frontend/src/utils/codeExporter'
@@ -129,5 +130,49 @@ describe('codeExporter', () => {
     expect(result).toContain('pagination.total')
     expect(result).not.toContain('dialogForm.hidden')
     expect(result).not.toContain('searchModel.hidden')
+  })
+
+  it('exports a readonly runtime when datasource mode is rest', () => {
+    const result = buildVueSfc({
+      ...schema,
+      datasource: {
+        mode: 'rest',
+        listUrl: '/api/external/users',
+        createUrl: '/api/external/users',
+        updateUrl: '/api/external/users/:id',
+        deleteUrl: '/api/external/users/:id',
+      },
+      actions: {
+        search: true,
+        reset: true,
+        create: true,
+        edit: true,
+        delete: true,
+        batchDelete: true,
+      },
+    })
+
+    expect(result).toContain('只读模式')
+    expect(result).not.toContain('type="selection"')
+    expect(result).not.toContain('@click="deleteRecord(row.id)"')
+  })
+
+  it('exports an SFC that can be parsed and compiled', () => {
+    const result = buildVueSfc(schema)
+    const parsed = parse(result, { filename: 'GeneratedPage.vue' })
+
+    expect(parsed.errors).toHaveLength(0)
+
+    const compiledScript = compileScript(parsed.descriptor, {
+      id: 'generated-page',
+    })
+    const compiledTemplate = compileTemplate({
+      id: 'generated-page',
+      filename: 'GeneratedPage.vue',
+      source: parsed.descriptor.template.content,
+    })
+
+    expect(compiledScript.content).toContain('loadRecords')
+    expect(compiledTemplate.errors).toHaveLength(0)
   })
 })

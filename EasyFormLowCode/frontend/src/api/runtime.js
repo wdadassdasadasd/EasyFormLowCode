@@ -28,22 +28,24 @@ export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequ
   })
 }
 
-export function createRuntimeRecord(pageId, data, { datasource, onRequestSettled } = {}) {
+export function createRuntimeRecord(pageId, data, { datasource, mode, onRequestSettled } = {}) {
   return requestByDatasource(datasource, {
     pageId,
     onRequestSettled,
     requestType: 'create',
+    runtimeMode: mode,
     method: 'POST',
     body: { data },
   })
 }
 
-export function updateRuntimeRecord(pageId, recordId, data, { datasource, onRequestSettled } = {}) {
+export function updateRuntimeRecord(pageId, recordId, data, { datasource, mode, onRequestSettled } = {}) {
   return requestByDatasource(datasource, {
     pageId,
     recordId,
     onRequestSettled,
     requestType: 'update',
+    runtimeMode: mode,
     method: 'PUT',
     body: { data },
   })

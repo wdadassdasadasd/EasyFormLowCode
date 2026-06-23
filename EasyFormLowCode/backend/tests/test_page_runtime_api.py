@@ -82,7 +82,7 @@ def test_save_schema_creates_versions_and_restore(client):
     )
     assert response.status_code == 200
     assert response.json()["schema_json"]["title"] == "用户管理"
-    assert response.json()["schema_json"]["schemaVersion"] == 1
+    assert response.json()["schema_json"]["schemaVersion"] == 2
 
     response = client.put(
         "/api/pages/demo_page/schema",
@@ -261,6 +261,27 @@ def test_runtime_mode_uses_published_schema_snapshot(client):
     published_name_search = client.get("/api/runtime/pages/runtime_mode_page/records?mode=published&name=alp")
     assert published_name_search.status_code == 200
     assert published_name_search.json()["total"] == 1
+
+
+def test_runtime_writes_validate_against_requested_schema_mode(client):
+    published_schema = {
+        "schemaVersion": 1,
+        "id": "write_mode_page",
+        "title": "Write mode",
+        "pageType": "crud",
+        "fields": [{"id": "field_published", "label": "Published", "prop": "published", "type": "input", "required": True}],
+    }
+    draft_schema = {
+        **published_schema,
+        "fields": [{"id": "field_draft", "label": "Draft", "prop": "draft", "type": "input", "required": True}],
+    }
+
+    assert client.put("/api/pages/write_mode_page/schema", json={"name": "Write mode", "schema_json": published_schema}).status_code == 200
+    assert client.post("/api/pages/write_mode_page/publish").status_code == 200
+    assert client.put("/api/pages/write_mode_page/schema", json={"name": "Write mode", "schema_json": draft_schema}).status_code == 200
+
+    assert client.post("/api/runtime/pages/write_mode_page/records?mode=draft", json={"data": {"draft": "ok"}}).status_code == 200
+    assert client.post("/api/runtime/pages/write_mode_page/records", json={"data": {"draft": "not allowed"}}).status_code == 422
 
 
 def test_project_page_lifecycle_uses_crud_template_and_cascades_data(client):

@@ -61,10 +61,11 @@ def get_runtime_stats(
 def create_runtime_record(
     page_id: str,
     payload: RuntimeRecordPayload,
+    mode: str = "published",
     db: Session = Depends(get_db),
 ):
     try:
-        record = create_page_record(db, page_id, payload.data)
+        record = create_page_record(db, page_id, payload.data, mode=mode)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return record_to_response(record)
@@ -78,10 +79,11 @@ def update_runtime_record(
     page_id: str,
     record_id: int,
     payload: RuntimeRecordPayload,
+    mode: str = "published",
     db: Session = Depends(get_db),
 ):
     try:
-        record = update_page_record(db, page_id, record_id, payload.data)
+        record = update_page_record(db, page_id, record_id, payload.data, mode=mode)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

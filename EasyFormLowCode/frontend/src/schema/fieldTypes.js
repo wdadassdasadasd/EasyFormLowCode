@@ -302,7 +302,7 @@ export function createFieldByType(type = 'input', overrides = {}, index = 1) {
 
   return normalizeField(
     {
-      id: overrides.id || `field_${Date.now()}_${index}`,
+      id: overrides.id || createFieldId(),
       ...base,
       ...overrides,
       type: config.type,
@@ -311,6 +311,14 @@ export function createFieldByType(type = 'input', overrides = {}, index = 1) {
     },
     index,
   )
+}
+
+function createFieldId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `field_${crypto.randomUUID()}`
+  }
+
+  return `field_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
 export function normalizeField(field = {}, index = 1, siblings = []) {

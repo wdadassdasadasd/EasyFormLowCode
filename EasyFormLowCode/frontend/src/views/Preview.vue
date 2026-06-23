@@ -56,13 +56,13 @@
           <span>共 {{ pagination.total }} 条</span>
         </div>
         <div class="toolbar-left">
-          <el-button v-if="pageActions.create" type="primary" @click="openCreateDialog">新增</el-button>
-          <el-button v-if="pageActions.edit" :disabled="selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
+          <el-button v-if="pageActions.create" type="primary" :disabled="readonlyRuntime" @click="openCreateDialog">新增</el-button>
+          <el-button v-if="pageActions.edit" :disabled="readonlyRuntime || selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
           <el-button
             v-if="pageActions.batchDelete"
             type="danger"
             plain
-            :disabled="selectedRows.length === 0"
+            :disabled="readonlyRuntime || selectedRows.length === 0"
             @click="deleteSelectedRows"
           >
             删除
@@ -81,8 +81,8 @@
         <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
         <el-table-column v-if="showRowActions" label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="pageActions.edit" link type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button v-if="pageActions.delete" link type="danger" @click="deleteRecord(row)">删除</el-button>
+            <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click="openEditDialog(row)">编辑</el-button>
+            <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click="deleteRecord(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -142,6 +142,7 @@ import { useRoute } from 'vue-router'
 
 import RequestInspector from '../components/RequestInspector.vue'
 import { usePageSchema } from '../composables/usePageSchema'
+import { getLocalPreview } from '../composables/previewSession'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
@@ -150,6 +151,7 @@ import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
 import { buildDemoRows } from '../schema/defaultSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
+import { applyDatasourceCapabilityToActions } from '../utils/schemaEditor'
 
 defineOptions({
   name: 'PreviewPage',
@@ -161,7 +163,7 @@ const isDraftPreview = computed(() => route.query.mode === 'draft')
 const runtimeMode = computed(() => (isDraftPreview.value ? 'draft' : 'published'))
 const statusText = ref('正在加载运行态页面...')
 let syncSchemaModels = () => {}
-const { pageSchema, pageStatus, publishedVersionNo, loadSchema: loadPageSchema } = usePageSchema({
+const { pageSchema, pageStatus, publishedVersionNo, replaceSchema, loadSchema: loadPageSchema } = usePageSchema({
   pageId,
   syncModels: () => syncSchemaModels(),
 })
@@ -180,6 +182,7 @@ const {
   isOffline,
   lastRequest,
   requestHistory,
+  readonlyRuntime,
   pagination,
   loadRecords,
   resetSearch,
@@ -202,7 +205,7 @@ const {
   fallbackRows: buildDemoRows,
 })
 
-const pageActions = computed(() => pageSchema.actions || {})
+const pageActions = computed(() => applyDatasourceCapabilityToActions(pageSchema.actions || {}, pageSchema.datasource))
 const pageStatusTag = computed(() => {
   if (isOffline.value) {
     return { text: '离线演示', type: 'warning' }
@@ -246,6 +249,15 @@ onMounted(async () => {
 })
 
 async function loadPreview() {
+  if (isDraftPreview.value && route.query.local === '1') {
+    const localSchema = getLocalPreview(pageId.value)
+    if (localSchema) {
+      replaceSchema(localSchema)
+      statusText.value = '正在预览未保存的本地草稿'
+      await loadRecords()
+      return
+    }
+  }
   await loadSchema()
   await loadRecords()
 }

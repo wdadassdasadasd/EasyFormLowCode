@@ -13,9 +13,13 @@ export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   const source = isPlainObject(schema) ? clonePageSchema(schema) : {}
   const migrated = { ...source }
 
-  if (!Number.isInteger(migrated.schemaVersion) || migrated.schemaVersion < SCHEMA_VERSION) {
-    migrated.schemaVersion = SCHEMA_VERSION
+  let version = Number.isInteger(migrated.schemaVersion) ? migrated.schemaVersion : 1
+  version = Math.max(version, 1)
+  while (version < SCHEMA_VERSION) {
+    if (version === 1) migrated.schemaVersion = 2
+    version += 1
   }
+  migrated.schemaVersion = SCHEMA_VERSION
 
   if (!isPlainObject(migrated.datasource) && isPlainObject(migrated.api)) {
     migrated.datasource = { ...migrated.api }

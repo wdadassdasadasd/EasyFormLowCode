@@ -27,6 +27,8 @@
         <div class="actions">
           <template v-if="isDesignerRoute">
             <el-tag :type="designerStatus.type" effect="plain">{{ designerStatus.text }}</el-tag>
+            <el-button plain @click="callDesigner('undoSchema')">Undo</el-button>
+            <el-button plain @click="callDesigner('redoSchema')">Redo</el-button>
             <el-button :icon="DocumentChecked" type="primary" plain @click="callDesigner('saveSchema')">保存</el-button>
             <el-button :icon="Promotion" type="primary" @click="callDesigner('publishSchema')">发布</el-button>
             <el-button :icon="View" @click="callDesigner('previewPage')">预览</el-button>

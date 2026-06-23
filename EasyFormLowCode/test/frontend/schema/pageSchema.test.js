@@ -4,6 +4,9 @@ import { normalizePageSchema, validatePageSchema } from '../../../frontend/src/s
 import contractFixture from '../../fixtures/page-schema-contract.json'
 
 describe('pageSchema normalization', () => {
+  it('migrates a v1 document to the current schema version', () => {
+    expect(normalizePageSchema('legacy', { schemaVersion: 1, fields: [] }).schemaVersion).toBe(2)
+  })
   it('fills page defaults and normalizes fields through one entrypoint', () => {
     const schema = normalizePageSchema('orders', {
       title: 'Orders',
@@ -14,7 +17,7 @@ describe('pageSchema normalization', () => {
     })
 
     expect(schema.id).toBe('orders')
-    expect(schema.schemaVersion).toBe(1)
+    expect(schema.schemaVersion).toBe(2)
     expect(schema.pageType).toBe('crud')
     expect(schema.datasource.listUrl).toBe('/api/runtime/pages/orders/records')
     expect(schema.api.listUrl).toBe('/api/runtime/pages/orders/records')
@@ -41,7 +44,7 @@ describe('pageSchema normalization', () => {
       actions: null,
     })
 
-    expect(schema.schemaVersion).toBe(1)
+    expect(schema.schemaVersion).toBe(2)
     expect(schema.datasource.mode).toBe('rest')
     expect(schema.datasource.listUrl).toBe('https://example.com/list')
     expect(schema.actions.batchDelete).toBe(true)

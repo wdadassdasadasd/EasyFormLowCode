@@ -13,6 +13,13 @@ describe('createDroppedField', () => {
     expect(field.tableVisible).toBe(true)
   })
 
+  it.each(['search', 'table', 'form'])('only enables the %s region for a dropped field', (area) => {
+    const field = createDroppedField('input', area, [])
+    expect(field.searchable).toBe(area === 'search')
+    expect(field.tableVisible).toBe(area === 'table')
+    expect(field.formVisible).toBe(area === 'form')
+  })
+
   it('keeps props unique when the same material is dropped repeatedly', () => {
     const first = createDroppedField('input', 'table', [])
     const second = createDroppedField('input', 'table', [first])

@@ -15,6 +15,7 @@ import {
   buildPlainRecord,
   buildSearchFilters,
   resetFieldValues,
+  getDatasourceCapabilities,
   validateRecord,
 } from '../utils/runtimeCrudHelpers'
 
@@ -50,6 +51,7 @@ export function useRuntimeCrud({
   })
   const datasource = computed(() => unref(pageSchema)?.datasource || unref(pageSchema)?.api || {})
   const readonlyRuntime = computed(() => datasource.value?.mode === 'rest')
+  const datasourceCapabilities = computed(() => getDatasourceCapabilities(datasource.value))
 
   async function loadRecords() {
     recordsLoading.value = true
@@ -217,11 +219,13 @@ export function useRuntimeCrud({
       if (dialogMode.value === 'edit') {
         await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm), {
           datasource: datasource.value,
+          mode: unref(runtimeMode),
           onRequestSettled: trackRequest,
         })
       } else {
         await createRuntimeRecord(unref(pageId), toPlainRecord(dialogForm), {
           datasource: datasource.value,
+          mode: unref(runtimeMode),
           onRequestSettled: trackRequest,
         })
       }
@@ -284,6 +288,7 @@ export function useRuntimeCrud({
     lastRequest,
     requestHistory,
     readonlyRuntime,
+    datasourceCapabilities,
     pagination,
     loadRecords,
     loadStats,

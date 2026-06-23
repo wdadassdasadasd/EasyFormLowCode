@@ -1,5 +1,17 @@
 import { buildFieldRules, getFieldInitialValue } from '../schema/fieldTypes'
 
+export function getDatasourceCapabilities(datasource = {}) {
+  const isExternalRest = datasource?.mode === 'rest'
+  return {
+    read: true,
+    create: !isExternalRest,
+    update: !isExternalRest,
+    delete: !isExternalRest,
+    batchDelete: !isExternalRest,
+    stats: !isExternalRest,
+  }
+}
+
 export function buildSearchFilters(searchableFields = [], searchModel = {}) {
   return searchableFields.reduce((result, field) => {
     const value = searchModel[field.prop]

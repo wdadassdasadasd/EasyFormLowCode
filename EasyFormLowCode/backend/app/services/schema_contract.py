@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_PAGE_ACTIONS = {
     "search": True,
@@ -142,8 +142,13 @@ def create_crud_template(page_id: str, name: str) -> dict[str, Any]:
 def migrate_page_schema(page_id: str, schema_json: dict[str, Any] | None) -> dict[str, Any]:
     source = dict(schema_json or {}) if isinstance(schema_json, dict) else {}
 
-    if not isinstance(source.get("schemaVersion"), int) or source["schemaVersion"] < SCHEMA_VERSION:
-        source["schemaVersion"] = SCHEMA_VERSION
+    version = source.get("schemaVersion") if isinstance(source.get("schemaVersion"), int) else 1
+    version = max(version, 1)
+    while version < SCHEMA_VERSION:
+        if version == 1:
+            source["schemaVersion"] = 2
+        version += 1
+    source["schemaVersion"] = SCHEMA_VERSION
 
     if not isinstance(source.get("datasource"), dict) and isinstance(source.get("api"), dict):
         source["datasource"] = dict(source["api"])

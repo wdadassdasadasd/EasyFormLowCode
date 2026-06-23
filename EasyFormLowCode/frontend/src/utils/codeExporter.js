@@ -1,5 +1,6 @@
 import { getFieldInitialValue, getFieldTypeConfig, getFieldsByUsage } from '../schema/fieldTypes'
 import { normalizePageSchema } from '../schema/pageSchema'
+import { getDatasourceCapabilities } from './runtimeCrudHelpers'
 
 export function buildSchemaJson(schema) {
   return JSON.stringify(normalizePageSchema(schema?.id, schema), null, 2)
@@ -7,6 +8,14 @@ export function buildSchemaJson(schema) {
 
 export function buildVueSfc(schema) {
   const normalizedSchema = normalizePageSchema(schema?.id, schema)
+  const datasourceCapabilities = getDatasourceCapabilities(normalizedSchema.datasource)
+  const exportedActions = {
+    ...normalizedSchema.actions,
+    create: datasourceCapabilities.create && normalizedSchema.actions.create,
+    edit: datasourceCapabilities.update && normalizedSchema.actions.edit,
+    delete: datasourceCapabilities.delete && normalizedSchema.actions.delete,
+    batchDelete: datasourceCapabilities.batchDelete && normalizedSchema.actions.batchDelete,
+  }
   const title = normalizedSchema.title || '低代码页面'
   const searchableFields = getFieldsByUsage(normalizedSchema.fields, 'search')
   const tableFields = getFieldsByUsage(normalizedSchema.fields, 'table')
@@ -26,6 +35,15 @@ export function buildVueSfc(schema) {
     </header>
 
     <el-alert v-if="runtimeError" type="error" :title="runtimeError" show-icon :closable="false" />
+    <el-alert
+      v-if="!datasourceCapabilities.create"
+      class="readonly-alert"
+      type="info"
+      title="当前数据源为只读模式"
+      description="已自动隐藏新增、编辑、删除和批量删除入口。"
+      show-icon
+      :closable="false"
+    />
 
     <el-form v-if="showSearchPanel" class="search-form" :model="searchModel" label-position="top">
 ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
@@ -36,9 +54,9 @@ ${searchableFields.map((field) => renderSearchItem(field)).join('\n')}
     </el-form>
 
     <el-table v-loading="loading" :data="rows" border>
-${pageSelectionColumn(normalizedSchema.actions)}
+${pageSelectionColumn(exportedActions)}
 ${tableFields.map((field) => `      ${getFieldTypeConfig(field.type).exporter.table(field)}`).join('\n')}
-${renderOperationColumn(normalizedSchema.actions)}
+${renderOperationColumn(exportedActions)}
     </el-table>
     <div class="pagination-row">
       <span>共 {{ pagination.total }} 条</span>
@@ -85,8 +103,9 @@ import VChart from 'vue-echarts'
 use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
 const DATASOURCE = ${JSON.stringify(normalizedSchema.datasource, null, 2)}
+const DATASOURCE_CAPABILITIES = ${JSON.stringify(datasourceCapabilities, null, 2)}
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
-const PAGE_ACTIONS = ${JSON.stringify(normalizedSchema.actions, null, 2)}
+const PAGE_ACTIONS = ${JSON.stringify(exportedActions, null, 2)}
 const rows = ref([])
 const loading = ref(false)
 const runtimeError = ref('')
@@ -100,6 +119,7 @@ const formFields = ${JSON.stringify(formFields, null, 2)}
 const fields = ${JSON.stringify(normalizedSchema.fields, null, 2)}
 const charts = ${JSON.stringify(charts, null, 2)}
 const pageActions = PAGE_ACTIONS
+const datasourceCapabilities = DATASOURCE_CAPABILITIES
 const showSearchPanel = ${Boolean(searchableFields.length > 0 || normalizedSchema.actions.search || normalizedSchema.actions.reset)}
 
 const metricCards = computed(() => {
@@ -248,6 +268,14 @@ function requestUrl(type, recordId) {
 }
 
 async function requestDatasource(type, { body, params = {}, recordId } = {}) {
+  if (
+    (type === 'create' && !datasourceCapabilities.create) ||
+    (type === 'update' && !datasourceCapabilities.update) ||
+    (type === 'delete' && !datasourceCapabilities.delete)
+  ) {
+    throw new Error('当前数据源为只读模式，无法执行写操作')
+  }
+
   const query = new URLSearchParams(params)
   if (DATASOURCE.mode === 'runtime') {
     query.set('mode', 'published')

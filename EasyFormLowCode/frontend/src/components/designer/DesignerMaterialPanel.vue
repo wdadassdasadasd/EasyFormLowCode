@@ -22,7 +22,7 @@
           @end="emit('material-drag-end')"
         >
           <template #item="{ element: fieldType }">
-            <button class="material-card" type="button" @click="emit('add-field', fieldType.type)">
+            <button class="material-card" type="button" @click="emit('add-field', fieldType.type, resolveAddArea())">
               <el-icon><component :is="iconMap[fieldType.material.icon]" /></el-icon>
               <span>{{ fieldType.label }}</span>
             </button>
@@ -55,7 +55,7 @@
 import { ElIcon } from 'element-plus'
 import Draggable from 'vuedraggable'
 
-defineProps({
+const props = defineProps({
   materialGroups: {
     type: Array,
     default: () => [],
@@ -86,6 +86,10 @@ function cloneMaterialItem(fieldType) {
     type: fieldType.type,
     label: fieldType.label,
   }
+}
+
+function resolveAddArea() {
+  return ['search', 'table', 'form'].includes(props.selectedArea) ? props.selectedArea : 'table'
 }
 </script>
 

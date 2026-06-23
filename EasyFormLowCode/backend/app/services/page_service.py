@@ -406,9 +406,9 @@ def record_matches_filters(record: PageRecord, normalized_filters: dict[str, str
     return True
 
 
-def create_page_record(db: Session, page_id: str, data: dict[str, Any]) -> PageRecord:
+def create_page_record(db: Session, page_id: str, data: dict[str, Any], mode: str = "published") -> PageRecord:
     page_obj = get_or_create_page(db, page_id)
-    validation_errors = validate_record_data(get_runtime_schema(page_obj), data)
+    validation_errors = validate_record_data(get_runtime_schema(page_obj, mode), data)
     if validation_errors:
         raise ValueError("; ".join(validation_errors))
     record = PageRecord(
@@ -426,6 +426,7 @@ def update_page_record(
     page_id: str,
     record_id: int,
     data: dict[str, Any],
+    mode: str = "published",
 ) -> PageRecord | None:
     page_obj = get_or_create_page(db, page_id)
     record = (
@@ -437,7 +438,7 @@ def update_page_record(
     if not record:
         return None
 
-    validation_errors = validate_record_data(get_runtime_schema(page_obj), data)
+    validation_errors = validate_record_data(get_runtime_schema(page_obj, mode), data)
     if validation_errors:
         raise ValueError("; ".join(validation_errors))
 
