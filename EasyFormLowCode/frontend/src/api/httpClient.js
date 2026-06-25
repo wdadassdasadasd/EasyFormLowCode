@@ -9,6 +9,19 @@ export class ApiError extends Error {
   }
 }
 
+function resolveErrorMessage(payload, status) {
+  if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+    return payload.detail
+  }
+  if (typeof payload?.detail?.message === 'string' && payload.detail.message.trim()) {
+    return payload.detail.message
+  }
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload.message
+  }
+  return `Request failed with ${status}`
+}
+
 function buildUrl(path, params, baseUrl = API_BASE_URL) {
   const rawPath = String(path || '')
   const url = /^https?:\/\//.test(rawPath)
@@ -46,7 +59,7 @@ export async function apiRequest(path, options = {}) {
     payload = text ? JSON.parse(text) : null
 
     if (!response.ok) {
-      const message = payload?.detail || payload?.message || `Request failed with ${response.status}`
+      const message = resolveErrorMessage(payload, response.status)
       throw new ApiError(message, { status: response.status, payload })
     }
 

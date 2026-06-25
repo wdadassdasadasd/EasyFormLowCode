@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import pages_router, projects_router, runtime_router, versions_router
+from app.api import entities_router, pages_router, projects_router, runtime_router, versions_router
 from app.database import Base, engine, get_db
-from app.models import Page, PageRecord, PageVersion, Project
+from app.models import Entity, EntityField, EntityRecord, EntityRecordRelation, EntityRelation, Page, PageRecord, PageVersion, Project
 from app.services.database_migrations import run_database_migrations
 
-_ = (Project, Page, PageRecord, PageVersion, get_db)
+_ = (Project, Page, PageRecord, PageVersion, Entity, EntityField, EntityRelation, EntityRecord, EntityRecordRelation, get_db)
 
 
 Base.metadata.create_all(bind=engine)
@@ -29,3 +29,4 @@ app.include_router(pages_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(runtime_router, prefix="/api")
 app.include_router(versions_router, prefix="/api")
+app.include_router(entities_router, prefix="/api")

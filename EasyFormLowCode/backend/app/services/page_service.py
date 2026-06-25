@@ -8,6 +8,9 @@ from app.models.page import Page
 from app.models.page_record import PageRecord
 from app.models.page_version import PageVersion
 from app.models.project import Project
+from app.models.entity import Entity
+from app.services.analytics_service import build_stats_payload
+from app.services.entity_service import build_entity_page_schema
 from app.services.schema_contract import (
     create_crud_template,
     get_minimal_schema,
@@ -111,16 +114,26 @@ def list_project_pages(db: Session, project_id: int) -> list[dict[str, Any]]:
     return [page_to_summary(page) for page in pages]
 
 
-def create_page(db: Session, project_id: int, page_id: str, name: str) -> Page:
+def create_page(db: Session, project_id: int, page_id: str, name: str, entity_id: int | None = None, template_key: str | None = None) -> Page:
     if not get_project(db, project_id):
         raise LookupError("project not found")
     if db.query(Page).filter(Page.page_key == page_id).first():
         raise ValueError("page id already exists")
 
     normalized_name = normalize_entity_name(name, "page")
-    schema_json = create_crud_template(page_id, normalized_name)
+    entity = db.query(Entity).filter(Entity.id == entity_id).first() if entity_id else None
+    if entity_id and (not entity or entity.project_id != project_id):
+        raise ValueError("entity does not belong to this project")
+    selected_template = template_key or "standard_crud"
+    if selected_template not in {"standard_crud", "master_data", "operations_dashboard"}:
+        raise ValueError("template key is invalid")
+    schema_json = build_entity_page_schema(db, entity, selected_template) if entity else create_crud_template(page_id, normalized_name)
+    schema_json["id"] = page_id
+    schema_json["title"] = normalized_name
     page = Page(
         project_id=project_id,
+        entity_id=entity.id if entity else None,
+        template_key=selected_template if entity else None,
         page_key=page_id,
         name=normalized_name,
         status="draft",
@@ -162,6 +175,8 @@ def page_to_response(page: Page) -> dict[str, Any]:
         "name": page.name,
         "status": page.status,
         "schema_json": json.loads(page.schema_json),
+        "entity_id": page.entity_id,
+        "template_key": page.template_key,
         "published_version_no": get_published_version_no(page),
         "published_at": page.published_at.isoformat() if page.published_at else None,
     }
@@ -174,6 +189,8 @@ def page_to_published_response(page: Page) -> dict[str, Any]:
         "name": page.name,
         "status": "published" if page.published_schema_json else page.status,
         "schema_json": json.loads(schema_json),
+        "entity_id": page.entity_id,
+        "template_key": page.template_key,
         "published_version_no": get_published_version_no(page),
         "published_at": page.published_at.isoformat() if page.published_at else None,
     }
@@ -201,6 +218,8 @@ def page_to_summary(page: Page) -> dict[str, Any]:
         "updated_at": page.updated_at.isoformat(),
         "published_version_no": get_published_version_no(page),
         "published_at": page.published_at.isoformat() if page.published_at else None,
+        "entity_id": page.entity_id,
+        "template_key": page.template_key,
     }
 
 
@@ -253,6 +272,33 @@ def save_page_schema(
     page.status = "draft"
     db.add(page)
     create_page_version(db, page, normalized_schema)
+    db.commit()
+    db.refresh(page)
+    return page
+
+
+def sync_entity_page(db: Session, page_id: str) -> Page | None:
+    page = db.query(Page).filter(Page.page_key == page_id).first()
+    if not page:
+        return None
+    if not page.entity_id:
+        raise ValueError("page is not bound to an entity")
+    entity = db.query(Entity).filter(Entity.id == page.entity_id).first()
+    if not entity:
+        raise ValueError("bound entity was not found")
+    current = json.loads(page.schema_json)
+    generated = build_entity_page_schema(db, entity, page.template_key or "standard_crud")
+    existing_fields = {field.get("prop") for field in current.get("fields", []) if isinstance(field, dict)}
+    additions = [field for field in generated["fields"] if field["prop"] not in existing_fields]
+    current["schemaVersion"] = 4
+    current["entity"] = generated["entity"]
+    current["templateKey"] = page.template_key or "standard_crud"
+    current["fields"] = [*current.get("fields", []), *additions]
+    normalized = normalize_page_schema(page_id, current)
+    page.schema_json = json.dumps(normalized, ensure_ascii=False)
+    page.status = "draft"
+    db.add(page)
+    create_page_version(db, page, normalized, message="同步实体新增字段")
     db.commit()
     db.refresh(page)
     return page
@@ -343,6 +389,7 @@ def list_page_record_stats(
     mode: str = "published",
 ) -> dict[str, Any]:
     page_obj = get_or_create_page(db, page_id)
+    schema_json = get_runtime_schema(page_obj, mode)
     normalized_filters = normalize_record_filters(page_obj, filters, mode=mode)
     records = (
         db.query(PageRecord)
@@ -351,17 +398,14 @@ def list_page_record_stats(
         .all()
     )
     matched_records = [record for record in records if record_matches_filters(record, normalized_filters)]
-
-    return {
-        "records": [
-            {
-                "id": record.id,
-                **json.loads(record.data_json),
-            }
-            for record in matched_records
-        ],
-        "total": len(matched_records),
-    }
+    rows = [
+        {
+            "id": record.id,
+            **json.loads(record.data_json),
+        }
+        for record in matched_records
+    ]
+    return build_stats_payload(db, schema_json, rows)
 
 
 def normalize_record_filters(
@@ -546,3 +590,112 @@ def restore_page_version(
     db.commit()
     db.refresh(page_obj)
     return page_obj
+
+
+def apply_field_reference_renames(schema_json: dict[str, Any], rename_map: dict[str, str]) -> None:
+    if not rename_map:
+        return
+    for metric in schema_json.get("metrics", []):
+        if isinstance(metric, dict) and metric.get("field") in rename_map:
+            metric["field"] = rename_map[metric["field"]]
+    for chart in schema_json.get("charts", []):
+        if isinstance(chart, dict) and chart.get("dimension") in rename_map:
+            chart["dimension"] = rename_map[chart["dimension"]]
+    for query in schema_json.get("queries", []):
+        if isinstance(query, dict) and query.get("fieldProp") in rename_map:
+            query["fieldProp"] = rename_map[query["fieldProp"]]
+
+
+def merge_entity_page_schema(current: dict[str, Any], generated: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(current or {})
+    generated_fields = [field for field in generated.get("fields", []) if isinstance(field, dict)]
+    generated_by_id = {field.get("entityFieldId"): field for field in generated_fields if field.get("entityFieldId") is not None}
+    generated_by_prop = {field.get("prop"): field for field in generated_fields if field.get("prop")}
+    rename_map: dict[str, str] = {}
+    merged_fields: list[dict[str, Any]] = []
+
+    for raw_field in merged.get("fields", []):
+        if not isinstance(raw_field, dict):
+            continue
+        field = dict(raw_field)
+        if field.get("entityFieldId") is None:
+            matched = generated_by_prop.get(field.get("prop"))
+            if matched:
+                field["entityFieldId"] = matched.get("entityFieldId")
+        generated_field = generated_by_id.get(field.get("entityFieldId"))
+        if generated_field:
+            if field.get("prop") and field.get("prop") != generated_field.get("prop"):
+                rename_map[str(field["prop"])] = str(generated_field["prop"])
+            field["label"] = generated_field.get("label")
+            field["prop"] = generated_field.get("prop")
+            field["type"] = generated_field.get("type")
+            field["required"] = generated_field.get("required")
+            field["defaultValue"] = generated_field.get("defaultValue")
+            field["options"] = generated_field.get("options", [])
+            if generated_field.get("relation") is not None:
+                field["relation"] = generated_field.get("relation")
+        merged_fields.append(field)
+
+    existing_ids = {field.get("entityFieldId") for field in merged_fields if field.get("entityFieldId") is not None}
+    existing_props = {field.get("prop") for field in merged_fields if field.get("prop")}
+    additions = [
+        dict(field)
+        for field in generated_fields
+        if field.get("entityFieldId") not in existing_ids and field.get("prop") not in existing_props
+    ]
+
+    merged["schemaVersion"] = generated.get("schemaVersion", merged.get("schemaVersion"))
+    merged["entity"] = generated.get("entity")
+    merged["templateKey"] = generated.get("templateKey")
+    merged["fields"] = [*merged_fields, *additions]
+    apply_field_reference_renames(merged, rename_map)
+    return merged
+
+
+def save_page_schema(
+    db: Session,
+    page_id: str,
+    name: str,
+    schema_json: dict[str, Any],
+) -> Page:
+    page = get_or_create_page(db, page_id)
+    source_schema = dict(schema_json or {}) if isinstance(schema_json, dict) else {}
+    if page.entity_id:
+        entity = db.query(Entity).filter(Entity.id == page.entity_id).first()
+        if entity:
+            generated = build_entity_page_schema(db, entity, page.template_key or "standard_crud")
+            source_schema = merge_entity_page_schema(source_schema, generated)
+    validation_errors = get_page_schema_validation_errors(source_schema)
+    if validation_errors:
+        raise ValueError("; ".join(validation_errors))
+
+    normalized_schema = normalize_page_schema(page_id, source_schema)
+    page.name = name or normalized_schema.get("title") or page.name
+    page.schema_json = json.dumps(normalized_schema, ensure_ascii=False)
+    page.status = "draft"
+    db.add(page)
+    create_page_version(db, page, normalized_schema)
+    db.commit()
+    db.refresh(page)
+    return page
+
+
+def sync_entity_page(db: Session, page_id: str) -> Page | None:
+    page = db.query(Page).filter(Page.page_key == page_id).first()
+    if not page:
+        return None
+    if not page.entity_id:
+        raise ValueError("page is not bound to an entity")
+    entity = db.query(Entity).filter(Entity.id == page.entity_id).first()
+    if not entity:
+        raise ValueError("bound entity was not found")
+    current = json.loads(page.schema_json)
+    generated = build_entity_page_schema(db, entity, page.template_key or "standard_crud")
+    normalized = normalize_page_schema(page_id, merge_entity_page_schema(current, generated))
+    page.schema_json = json.dumps(normalized, ensure_ascii=False)
+    page.status = "draft"
+    db.add(page)
+    create_page_version(db, page, normalized, message="鍚屾瀹炰綋瀛楁")
+    db.commit()
+    db.refresh(page)
+    return page

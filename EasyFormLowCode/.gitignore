@@ -36,6 +36,14 @@ coverage
 __screenshots__/
 .codex-logs/
 
+# Local AI collaboration and skill artifacts
+/.agents/
+/.claude/
+/AGENTS.md
+/CLAUDE.md
+/AUDIT_REPORT.md
+/docs/
+
 # Vite
 *.timestamp-*-*.mjs
 

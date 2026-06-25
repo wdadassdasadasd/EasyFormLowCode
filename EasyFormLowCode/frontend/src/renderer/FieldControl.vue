@@ -20,12 +20,21 @@
         {{ option.label }}
       </el-radio>
     </template>
+
+    <template v-if="isCheckboxGroup">
+      <el-checkbox v-for="option in normalizedOptions" :key="String(option.value)" :value="option.value">
+        {{ option.label }}
+      </el-checkbox>
+    </template>
   </component>
 </template>
 
 <script setup>
 import {
   ElDatePicker,
+  ElCascader,
+  ElCheckbox,
+  ElCheckboxGroup,
   ElInput,
   ElInputNumber,
   ElOption,
@@ -63,6 +72,8 @@ const componentMap = {
   ElDatePicker,
   ElSwitch,
   ElRadioGroup,
+  ElCheckboxGroup,
+  ElCascader,
 }
 
 const normalizedField = computed(() => normalizeField(props.field))
@@ -71,9 +82,10 @@ const controlConfig = computed(() => {
   return props.mode === 'search' ? fieldConfig.value.searchControl : fieldConfig.value.formControl
 })
 const resolvedComponent = computed(() => componentMap[controlConfig.value.component] || ElInput)
-const normalizedOptions = computed(() => normalizeOptions(normalizedField.value.options))
+const normalizedOptions = computed(() => normalizeOptions(normalizedField.value.relationOptions?.length ? normalizedField.value.relationOptions : normalizedField.value.options))
 const isOptionSelect = computed(() => controlConfig.value.component === 'ElSelect')
 const isRadioGroup = computed(() => controlConfig.value.component === 'ElRadioGroup')
+const isCheckboxGroup = computed(() => controlConfig.value.component === 'ElCheckboxGroup')
 
 const fieldValue = computed({
   get() {
@@ -106,6 +118,14 @@ const controlProps = computed(() => {
 
   if (field.type === 'date') {
     baseProps.type = field.dateType || 'date'
+  }
+
+  if (field.type === 'select') {
+    baseProps.multiple = Boolean(field.multiple)
+  }
+
+  if (field.type === 'cascader') {
+    baseProps.options = normalizedOptions.value
   }
 
   if (field.type === 'switch' && props.mode === 'form') {

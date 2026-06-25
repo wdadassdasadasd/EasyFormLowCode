@@ -1,512 +1,143 @@
-Decision Summary
-你要做的是一个 面向后台管理系统的简易低代码平台：通过 PageSchema 驱动编辑器、运行态页面、版本管理和 Vue 代码导出。第一版先不接 AI，但保留 AI 接入位置，后续可接 DeepSeek 生成 PageSchema。
+#README .md
 
-Decisions
-项目定位: 后台管理系统 CRUD + 表单 + 列表 + 简单图表看板。
-核心模式: Schema 驱动运行 + 支持导出 Vue 代码。
-Schema 粒度: 页面级模块 + 字段级配置，不做任意组件级自由画布。
-后端技术栈: FastAPI + SQLite + SQLAlchemy + JSON 动态数据表。
-数据模式: 真实后端接口，业务 records 使用 JSON 动态表承载。
-编辑器形态: 三栏式编辑器：左侧模块/字段库，中间实时预览，右侧属性配置。
-AI 策略: 第一期不接 AI，只预留 /api/ai/generate-schema 和服务层位置，后续接 DeepSeek。
-个人核心工作: PageSchema、Schema Renderer、三栏编辑器核心交互、运行态 CRUD、代码导出。
-登录权限: 极简登录，不做复杂 RBAC。
-版本管理: 历史版本 + 一键回滚，diff 简化或后置。
-代码导出: 导出单个 Vue SFC 文件 + schema JSON。
-图表看板: ECharts 简单聚合图表，基于当前 records 本地统计。
-开发顺序: 先前端 schema/renderer 闭环，再补后端接口。
-展示定位: 两者均衡，但工程优先。
-前端补充技术栈: Vite、Vue Router、Pinia、Axios、vuedraggable/sortablejs、ECharts，Monaco 可选。
-字段类型: input、textarea、number、select、date、switch、radio、upload。
-查询能力: 按 searchable 字段生成多条件查询 + 分页。
-项目结构: 单仓库，frontend/ 和 backend/ 前后端分离。
-完整项目方案
-一、项目定位
+本文件是 LowCode Admin Builder 的长期协作规范。开发者或 AI 修改代码前必须阅读并遵守。
 
-项目名称可以叫：
+## 项目说明
+本项目通过可视化配置生成可运行、可维护、可导出的后台 CRUD 管理页面。
 
-LowCode Admin Builder
+核心场景：
+- 搜索表单、数据表格、新增 / 编辑弹窗
+- 统计卡片与 ECharts 图表
+- 页面保存、发布、版本回滚
+- Vue 单文件组件与 PageSchema JSON 导出
 
-它不是通用网页搭建器，而是专注于后台管理页面生成：
+产品不追求任意自由画布，优先保证后台管理场景简单、稳定、清晰。页面应有明确的加载、空数据和错误反馈；后端不可用时应合理兜底，避免白屏。
 
-CRUD 页面
-搜索表单
-数据表格
-新增 / 编辑弹窗表单
-简单统计卡片和图表
-页面 schema 保存、发布、回滚
-Vue3 源码导出
-一句话介绍：
+## 修改前必读
+首次进入项目或生成代码前，至少阅读：
+- `README.md`
+- `package.json`
+- `frontend/src/main.js`
+- `frontend/src/router/`
+- `frontend/src/api/`
+- `frontend/src/views/`
+- `frontend/src/composables/`
+- `frontend/src/schema/`
+- `frontend/src/renderer/`
+- `backend/app/main.py`
+- `backend/app/api/`
+- `backend/app/services/`
+- `backend/app/schemas/`
 
-一个基于 PageSchema 的后台低代码平台，通过可视化配置生成可运行的 CRUD 管理页面，并支持真实后端数据、版本回滚和 Vue 源码导出。
+前端请求统一使用 `frontend/src/api/httpClient.js` 的 `apiRequest`。项目不存在 `frontend/src/utils/request.js`，不得假设其存在。
 
-二、核心亮点
+## 技术栈
+- 前端：Vue 3、JavaScript、Vite、Element Plus、Pinia、Vue Router、vuedraggable、ECharts、Vitest
+- 后端：Python、FastAPI、SQLite、SQLAlchemy、Pydantic、Uvicorn、Pytest
+- 除非任务明确要求，不得引入新依赖或改用其他技术栈
 
-PageSchema 驱动架构
-一份 JSON 同时驱动：
-
-编辑器实时预览
-运行态页面
-后端动态 CRUD
-版本管理
-Vue 代码导出
-核心表达：
-
-本项目不是简单拖拽 UI，而是构建了一套 schema engine，让页面配置成为平台的统一数据协议。
-
-真实 CRUD 运行态
-不是只做静态预览，页面发布后可以真实调用后端接口：
-
-查询
-新增
-编辑
-删除
-分页
-多条件搜索
-版本管理与回滚
-每次保存 schema 生成历史版本，可查看旧版本并一键恢复。
-
-源码导出
-把 PageSchema 转成 Vue3 + Element Plus 单文件组件，减少平台锁定感。
-
-AI 可扩展架构
-第一版不接 AI，但保留 AI 入口：
-
-后端 AiService
-前端 AI 生成按钮位置
-/api/ai/generate-schema
-后续 DeepSeek 只需要输出 PageSchema
-三、技术栈
-
-前端：
-
-Vue3
-JavaScript
-Vite
-Element Plus
-Vue Router
-Pinia
-Axios
-vuedraggable / sortablejs
-ECharts / vue-echarts
-Monaco Editor 可选
-后端：
-
-Python
-FastAPI
-SQLite
-SQLAlchemy
-Pydantic
-Uvicorn
-数据库：
-
-SQLite
-JSON 字段存储 PageSchema 和动态业务数据
-四、总体架构
-
-用户
- ↓
-Vue3 前端
- ├─ 项目管理
- ├─ 三栏式低代码编辑器
- ├─ Schema Renderer
- ├─ 运行态 CRUD 页面
- ├─ 版本管理
- └─ 代码导出器
- ↓ Axios
-FastAPI 后端
- ├─ Auth API
- ├─ Project API
- ├─ Page API
- ├─ Runtime CRUD API
- ├─ Version API
- └─ AI API 预留
- ↓
-SQLite
- ├─ users
- ├─ projects
- ├─ pages
- ├─ page_versions
- └─ page_records
-核心模块关系：
-
-PageSchema
- ├─ Editor 修改它
- ├─ Renderer 渲染它
- ├─ Backend 保存它
- ├─ Runtime 使用它处理 CRUD
- ├─ Version Manager 记录它
- └─ Code Exporter 转换它
-五、PageSchema 设计
-
-建议第一版 schema：
-
-{
-  id: 'user_manage',
-  title: '用户管理',
-  pageType: 'crud',
-  api: {
-    mode: 'runtime',
-    listUrl: '/api/runtime/pages/user_manage/records',
-    createUrl: '/api/runtime/pages/user_manage/records',
-    updateUrl: '/api/runtime/pages/user_manage/records/:id',
-    deleteUrl: '/api/runtime/pages/user_manage/records/:id'
-  },
-  fields: [
-    {
-      id: 'username',
-      label: '用户名',
-      prop: 'username',
-      type: 'input',
-      required: true,
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-      options: []
-    }
-  ],
-  table: {
-    rowKey: 'id',
-    columns: [],
-    actions: ['edit', 'delete']
-  },
-  formDialog: {
-    title: '编辑数据',
-    width: '600px'
-  },
-  charts: [
-    {
-      id: 'statusPie',
-      type: 'pie',
-      title: '状态分布',
-      dimension: 'status',
-      metric: 'count'
-    }
-  ]
-}
-字段类型：
-
-input
-textarea
-number
-select
-date
-switch
-radio
-upload
-第一版不要做：
-
-复杂联动
-子表单
-树选择
-富文本
-流程审批
-任意组件自由布局
-六、前端模块规划
-
-推荐目录：
-
+## 目录与职责
+```text
 frontend/src/
-  api/
-    auth.js
-    project.js
-    page.js
-    runtime.js
-    version.js
-  router/
-    index.js
-  stores/
-    authStore.js
-    projectStore.js
-    editorStore.js
-  schema/
-    defaultSchema.js
-    schemaUtils.js
-    fieldTypes.js
-  renderer/
-    SchemaRenderer.vue
-    SearchFormRenderer.vue
-    TableRenderer.vue
-    FormDialogRenderer.vue
-    ChartRenderer.vue
-  editor/
-    LowCodeEditor.vue
-    ComponentPanel.vue
-    PreviewCanvas.vue
-    PropertyPanel.vue
-    VersionDrawer.vue
-    ExportDialog.vue
-  views/
-    LoginView.vue
-    ProjectListView.vue
-    PageListView.vue
-    EditorView.vue
-    RuntimeView.vue
-  utils/
-    codeExporter.js
-    chartAggregator.js
-核心页面：
+├── api/          # 接口请求
+├── components/   # 公共组件
+├── composables/  # 可复用状态与业务行为
+├── config/       # 全局配置
+├── renderer/     # schema 运行时渲染
+├── router/       # 路由
+├── schema/       # PageSchema 默认值、类型与归一化
+├── stores/       # Pinia 状态
+├── utils/        # 纯工具函数
+└── views/        # 页面编排
+backend/app/
+├── api/          # FastAPI 路由
+├── models/       # SQLAlchemy 模型
+├── schemas/      # Pydantic 模型
+└── services/     # 业务流程与持久化编排
+```
 
-登录页
-项目列表页
-页面列表页
-编辑器页
-运行态页面
-版本管理抽屉
-导出代码弹窗
-三栏编辑器：
+- `views` 保持轻量，不堆叠请求、复杂状态和数据转换。
+- 接口调用放入 `api`，可复用业务逻辑放入 `composables`。
+- PageSchema 规则放入 `schema`，运行时控件放入 `renderer`。
+- `utils` 只放纯逻辑，例如图表聚合与代码导出。
+- 后端路由处理 HTTP 边界，业务放入 service，模型不承载大量业务逻辑。
+- 新能力优先放入已有边界，不将编辑器、CRUD、版本和导出堆进单个文件。
 
-顶部工具栏：
-保存 / 发布 / 预览 / 版本 / 导出代码 / AI 预留按钮
+## PageSchema 原则
+PageSchema 是统一协议，一份 schema 应同时驱动：
+- 编辑器实时预览
+- 运行态 CRUD 页面
+- 后端配置持久化
+- 页面版本管理与回滚
+- Vue 组件和 JSON 导出
+- 后续 AI 生成或优化入口
 
-左侧：
-字段类型、模块入口、快速模板
+修改 PageSchema 结构或语义时，必须同步检查默认 schema、字段归一化、设计器、运行态渲染、后端模型、版本管理、代码导出和测试。
 
-中间：
-SchemaRenderer 实时预览
+## 代码规范
+- 文件使用 UTF-8，中文不得乱码。
+- Vue 使用 Composition API、`<script setup>` 和 JavaScript，不使用 TypeScript。
+- 优先复用 Element Plus、已有组件、composable、schema 与工具函数。
+- 命名贴近业务，优先使用 `pageSchema`、`field`、`record`、`version`、`runtime`。
+- 函数职责单一，避免同时处理请求、状态、提示和数据转换。
+- 重复逻辑必须抽离，避免魔法字符串和无依据的过度抽象。
+- 拖拽使用 vuedraggable；图表使用 ECharts，并从 schema 和 records 派生配置。
+- 核心复杂逻辑应注释设计意图，不写重复代码表面的无效注释。
+- FastAPI 路由按领域拆分；Pydantic 负责接口边界；service 负责业务流程。
 
-右侧：
-页面属性、字段属性、表格属性、图表属性
-七、后端模块规划
+## 接口规范
+- 所有前端接口请求必须放在 `frontend/src/api/`。
+- 请求必须使用 `apiRequest`，组件中禁止直接使用 `fetch` 或 Axios。
+- API 基础地址从 `frontend/src/config/` 获取，不得硬编码生产地址。
+- 组件调用 `api` 导出的业务函数；复用的加载、错误、分页和 CRUD 状态放入 composable。
+- 错误提示应清晰、可操作，不直接展示缺少上下文的底层异常。
 
-推荐目录：
+## 禁止事项
+- 修改无关文件或删除已有业务代码
+- 随意修改 `package.json`、锁文件、`vite.config.js` 或 `frontend/src/main.js`
+- 未经明确要求引入依赖
+- 硬编码 Token、密码、密钥或生产接口地址
+- 绕过 lint、测试或构建错误
+- 留下无用 import、调试 `console.log` 或临时代码
+- 在组件中直接发请求
+- 未评估兼容影响就改变 PageSchema 字段语义
+- 用大规模重构夹带实现小需求
 
-backend/
-  app/
-    main.py
-    database.py
-    models/
-      user.py
-      project.py
-      page.py
-      page_version.py
-      page_record.py
-    schemas/
-      auth_schema.py
-      project_schema.py
-      page_schema.py
-      runtime_schema.py
-    api/
-      auth.py
-      projects.py
-      pages.py
-      runtime.py
-      versions.py
-      ai.py
-    services/
-      auth_service.py
-      page_service.py
-      runtime_service.py
-      version_service.py
-      ai_service.py
-    core/
-      security.py
-      config.py
-数据库表：
+## 运行与验收
+前端命令在项目根目录执行：
+```bash
+npm run lint
+npm test
+npm run build
+```
+后端测试：
+```bash
+cd backend
+python -m pytest -q
+```
 
-users
-- id
-- username
-- password_hash
-- created_at
+提交前确认设计器和运行态预览可打开、页面无白屏、控制台无新增错误。涉及 CRUD 时检查查询、重置、分页、新增、编辑和删除；涉及 UI 时检查加载、空状态、错误提示和窄屏布局。
 
-projects
-- id
-- name
-- description
-- created_at
-- updated_at
+无法执行的检查必须说明原因，不得声称已经通过。
 
-pages
-- id
-- project_id
-- name
-- schema_json
-- status
-- created_at
-- updated_at
+## 提交规范
+使用明确的 Conventional Commit，例如：
+```text
+feat: 新增字段配置能力
+fix: 修复运行态分页异常
+refactor: 优化表单模型同步逻辑
+docs: 更新项目协作说明
+```
+除非用户明确要求，不得擅自提交、推送或创建 Pull Request。
 
-page_versions
-- id
-- page_id
-- version_no
-- message
-- schema_json
-- created_at
+## AI 输出要求
+修改前输出：需求理解、计划修改文件、实现方案、风险点。
 
-page_records
-- id
-- page_id
-- data_json
-- created_at
-- updated_at
-八、API 清单
+修改后输出：本次修改、修改文件、自测方式、注意事项。
 
-认证：
+所有 AI 生成代码必须经过人工 Review 后才能合并。
 
-POST /api/auth/login
-GET  /api/auth/me
-项目：
+## 演进方向
+优先：Datasource 抽象、Action / Query 链路、请求观察面板、PageSchema 迁移、项目与页面列表、AI 生成 PageSchema。
 
-GET    /api/projects
-POST   /api/projects
-GET    /api/projects/{project_id}
-PUT    /api/projects/{project_id}
-DELETE /api/projects/{project_id}
-页面：
-
-GET    /api/projects/{project_id}/pages
-POST   /api/projects/{project_id}/pages
-GET    /api/pages/{page_id}
-PUT    /api/pages/{page_id}/schema
-POST   /api/pages/{page_id}/publish
-DELETE /api/pages/{page_id}
-运行态 CRUD：
-
-GET    /api/runtime/pages/{page_id}/records
-POST   /api/runtime/pages/{page_id}/records
-PUT    /api/runtime/pages/{page_id}/records/{record_id}
-DELETE /api/runtime/pages/{page_id}/records/{record_id}
-查询参数：
-
-page=1
-pageSize=10
-username=张三
-status=enabled
-版本：
-
-GET  /api/pages/{page_id}/versions
-GET  /api/pages/{page_id}/versions/{version_id}
-POST /api/pages/{page_id}/versions/{version_id}/restore
-AI 预留：
-
-POST /api/ai/generate-schema
-POST /api/ai/optimize-schema
-第一版可以返回：
-
-{
-  message: 'AI 功能暂未启用',
-  schema: null
-}
-九、20 天开发排期
-
-Day 1-2：项目初始化
-
-搭建 Vue3 + Vite + Element Plus
-搭建 FastAPI + SQLite + SQLAlchemy
-确定 PageSchema
-建基础路由和布局
-Day 3-5：Schema Renderer
-
-搜索表单渲染
-表格渲染
-新增 / 编辑弹窗表单
-字段类型映射 Element Plus
-Day 6-8：三栏编辑器
-
-左侧字段库
-中间实时预览
-右侧属性面板
-字段新增、删除、排序、选中、编辑
-Day 9-10：页面与项目接口
-
-项目 CRUD
-页面保存 / 查询
-schema 持久化
-前后端联调
-Day 11-12：运行态 CRUD
-
-page_records 动态数据表
-新增 / 编辑 / 删除
-多条件查询
-分页
-Day 13-14：版本管理
-
-保存自动生成版本
-版本列表
-查看历史 schema
-一键回滚
-Day 15-16：代码导出
-
-PageSchema 转 Vue SFC
-导出 schema JSON
-导出弹窗和下载功能
-Day 17：图表看板
-
-ECharts 接入
-records 本地聚合
-饼图 / 柱状图 / 统计卡片
-Day 18：极简登录
-
-登录接口
-token 存储
-路由守卫
-登出
-Day 19：体验打磨
-
-空状态
-错误提示
-加载状态
-默认模板
-演示数据
-Day 20：收尾
-
-测试核心流程
-README
-架构图
-演示脚本
-答辩材料
-十、风险控制
-
-最大风险 1：编辑器做太复杂。
-控制方式：只做业务字段级配置，不做自由画布。
-
-最大风险 2：后端动态表查询复杂。
-控制方式：JSON 数据表 + 简单多条件过滤，后续再优化索引。
-
-最大风险 3：代码导出范围失控。
-控制方式：只导出单 Vue SFC + schema JSON。
-
-最大风险 4：AI 接入不稳定。
-控制方式：第一版不接 AI，只保留架构位。
-
-最大风险 5：图表拖慢进度。
-控制方式：优先统计卡片，再做 ECharts 饼图/柱状图。
-
-十一、答辩展示路线
-
-登录系统。
-创建一个项目。
-创建“用户管理”页面。
-在编辑器中添加字段：用户名、手机号、角色、状态、创建时间。
-设置哪些字段显示在表格、搜索表单、编辑表单。
-保存并发布页面。
-进入运行态页面，真实新增、编辑、删除数据。
-查看搜索和分页。
-查看图表随数据变化。
-保存新版本，修改字段，再回滚旧版本。
-导出 Vue 文件和 schema JSON。
-最后讲架构：
-一份 PageSchema
-同时驱动编辑器、运行态、版本管理、代码导出。
-十二、后续 AI 接入设计
-
-后续接 DeepSeek 时不改变主架构，只新增：
-
-POST /api/ai/generate-schema
-流程：
-
-用户输入自然语言需求
- ↓
-FastAPI AiService
- ↓
-DeepSeek API
- ↓
-生成 PageSchema
- ↓
-Pydantic 校验
- ↓
-返回前端确认应用
-答辩表达：
-
-当前系统已经完成低代码平台的确定性核心。AI 不直接控制页面，而是作为 PageSchema 生成器接入，因此可替换、可校验、可回滚。
+暂不优先：任意自由画布、复杂审批、复杂 RBAC、大型组件市场、复杂多表关联查询。

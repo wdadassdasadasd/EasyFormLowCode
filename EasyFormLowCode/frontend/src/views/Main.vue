@@ -34,6 +34,7 @@
             <el-button :icon="View" @click="callDesigner('previewPage')">预览</el-button>
             <el-button :icon="RefreshLeft" @click="callDesigner('showVersion')">版本</el-button>
             <el-button :icon="Upload" @click="callDesigner('exportSchema')">导出</el-button>
+            <el-button plain @click="callDesigner('syncEntityPage')">同步实体</el-button>
           </template>
           <template v-else-if="isPreviewRoute">
             <el-tag type="success" effect="plain">运行态预览</el-tag>
@@ -53,7 +54,7 @@
 </template>
 
 <script setup>
-import { DataBoard, DocumentChecked, EditPen, Folder, House, Promotion, RefreshLeft, Setting, Upload, View } from '@element-plus/icons-vue'
+import { DataAnalysis, DataBoard, DocumentChecked, EditPen, Folder, House, Promotion, RefreshLeft, Setting, Upload, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -78,6 +79,7 @@ const selectedPageId = computed(() => resolveSelectedPageId(route.query.pageId, 
 const menus = [
   { label: '工作台', path: '/workbench', icon: House },
   { label: '项目管理', path: '/appmanage', icon: Folder },
+  { label: '数据模型', path: '/entities', icon: DataAnalysis },
   { label: '页面设计', path: '/pagedesigner', icon: EditPen },
   { label: '运行预览', path: '/preview', icon: DataBoard },
   { label: '系统设置', path: '/setting', icon: Setting },

@@ -7,14 +7,40 @@ export function useSchemaModels(pageSchema) {
   const dialogForm = reactive({})
   const formErrors = reactive({})
 
-  const searchableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'search'))
+  const queryItems = computed(() => Array.isArray(pageSchema.queries) ? pageSchema.queries : [])
+  const searchableFields = computed(() => {
+    if (queryItems.value.length > 0) {
+      return queryItems.value
+        .map((query) => pageSchema.fields.find((field) => field.prop === query.fieldProp))
+        .filter(Boolean)
+    }
+    return getFieldsByUsage(pageSchema.fields, 'search')
+  })
   const tableFields = computed(() => getFieldsByUsage(pageSchema.fields, 'table'))
   const formFields = computed(() => getFieldsByUsage(pageSchema.fields, 'form'))
 
   function syncModels() {
-    syncObjectKeys(searchModel, searchableFields.value)
+    syncSearchModel()
     syncObjectKeys(dialogForm, formFields.value)
     syncObjectKeys(formErrors, formFields.value, '')
+  }
+
+  function syncSearchModel() {
+    if (queryItems.value.length > 0) {
+      Object.keys(searchModel).forEach((key) => {
+        if (!queryItems.value.some((query) => query.id === key)) {
+          delete searchModel[key]
+        }
+      })
+      queryItems.value.forEach((query) => {
+        if (!(query.id in searchModel)) {
+          searchModel[query.id] = query.defaultValue ?? ''
+        }
+      })
+      return
+    }
+
+    syncObjectKeys(searchModel, searchableFields.value, '')
   }
 
   function syncObjectKeys(target, fields, emptyValue) {
@@ -38,6 +64,7 @@ export function useSchemaModels(pageSchema) {
     searchableFields,
     tableFields,
     formFields,
+    queryItems,
     syncModels,
   }
 }

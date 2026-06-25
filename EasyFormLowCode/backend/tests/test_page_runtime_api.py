@@ -82,7 +82,7 @@ def test_save_schema_creates_versions_and_restore(client):
     )
     assert response.status_code == 200
     assert response.json()["schema_json"]["title"] == "用户管理"
-    assert response.json()["schema_json"]["schemaVersion"] == 2
+    assert response.json()["schema_json"]["schemaVersion"] == 5
 
     response = client.put(
         "/api/pages/demo_page/schema",
@@ -191,11 +191,49 @@ def test_runtime_stats_use_filtered_records_not_current_page(client):
     stats_response = client.get("/api/runtime/pages/stats_page/stats")
     assert stats_response.status_code == 200
     assert stats_response.json()["total"] == 12
-    assert len(stats_response.json()["records"]) == 12
+    assert stats_response.json()["records"] == []
+    assert len(stats_response.json()["metrics"]) == 0
+    assert len(stats_response.json()["charts"]) == 0
 
     filtered_stats = client.get("/api/runtime/pages/stats_page/stats?status=enabled")
     assert filtered_stats.status_code == 200
     assert filtered_stats.json()["total"] == 6
+
+
+def test_runtime_stats_return_server_side_metrics_and_charts(client):
+    schema = {
+        "schemaVersion": 4,
+        "id": "analytics_page",
+        "title": "Analytics",
+        "pageType": "crud",
+        "fields": [
+            {"id": "field_status", "label": "Status", "prop": "status", "type": "select", "options": [{"label": "Enabled", "value": "enabled"}, {"label": "Disabled", "value": "disabled"}]},
+            {"id": "field_created_at", "label": "Created At", "prop": "createdAt", "type": "date"},
+        ],
+        "metrics": [
+            {"id": "total", "title": "Total", "type": "total", "tone": "blue"},
+            {"id": "enabled", "title": "Enabled", "type": "match", "field": "status", "value": "enabled", "tone": "green"},
+        ],
+        "charts": [
+            {"id": "statusPie", "type": "pie", "title": "Status Pie", "dimension": "status", "metric": "count"},
+        ],
+    }
+    save_response = client.put(
+        "/api/pages/analytics_page/schema",
+        json={"name": "Analytics", "schema_json": schema},
+    )
+    assert save_response.status_code == 200
+    assert client.post("/api/runtime/pages/analytics_page/records", json={"data": {"status": "enabled", "createdAt": "2026-06-10"}}).status_code == 200
+    assert client.post("/api/runtime/pages/analytics_page/records", json={"data": {"status": "disabled", "createdAt": "2026-05-01"}}).status_code == 200
+
+    stats_response = client.get("/api/runtime/pages/analytics_page/stats")
+    assert stats_response.status_code == 200
+    payload = stats_response.json()
+    assert payload["records"] == []
+    assert payload["metrics"][0]["value"] == 2
+    assert payload["metrics"][1]["value"] == 1
+    assert payload["charts"][0]["labels"] == ["Enabled", "Disabled"]
+    assert payload["charts"][0]["values"] == [1, 1]
 
 
 def test_save_schema_rejects_invalid_root_shape(client):

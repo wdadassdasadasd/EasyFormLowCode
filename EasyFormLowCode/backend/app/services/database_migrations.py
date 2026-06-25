@@ -14,6 +14,8 @@ def run_database_migrations(engine: Engine) -> None:
             "project_id": "INTEGER",
             "published_version_id": "INTEGER",
             "published_at": "DATETIME",
+            "entity_id": "INTEGER",
+            "template_key": "VARCHAR(40)",
         }
         for name, definition in additions.items():
             if name not in page_columns:

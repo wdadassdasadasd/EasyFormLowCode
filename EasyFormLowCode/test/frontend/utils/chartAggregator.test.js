@@ -34,6 +34,16 @@ describe('chartAggregator', () => {
     expect(metrics[1].value).toBe(2)
   })
 
+  it('builds configured metric cards from schema definitions', () => {
+    const metrics = buildMetricCards(records, fields, [{ id: 'enabled', title: '启用', type: 'match', field: 'status', value: 'enabled' }])
+
+    expect(metrics).toEqual([expect.objectContaining({ id: 'enabled', value: 2 })])
+  })
+
+  it('preserves an explicitly empty metric configuration', () => {
+    expect(buildMetricCards(records, fields, [])).toEqual([])
+  })
+
   it('aggregates option labels for pie charts', () => {
     const chart = aggregateChart({ id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'status' }, records, fields)
 

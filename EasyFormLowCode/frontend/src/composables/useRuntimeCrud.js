@@ -5,6 +5,8 @@ import {
   createRuntimeRecord,
   deleteRuntimeRecord,
   deleteRuntimeRecords,
+  executeBatchAction,
+  executeRowAction,
   getRuntimeStats,
   listRuntimeRecords,
   updateRuntimeRecord,
@@ -14,8 +16,10 @@ import {
   buildFormValues,
   buildPlainRecord,
   buildSearchFilters,
+  classifyRequestFailure,
   resetFieldValues,
   getDatasourceCapabilities,
+  summarizeResponse,
   validateRecord,
 } from '../utils/runtimeCrudHelpers'
 
@@ -39,6 +43,8 @@ export function useRuntimeCrud({
   const selectedRows = ref([])
   const recordRows = ref([])
   const statsRows = ref([])
+  const statsMetrics = ref([])
+  const statsCharts = ref([])
   const runtimeError = ref('')
   const runtimeNotice = ref('')
   const isOffline = ref(false)
@@ -50,14 +56,17 @@ export function useRuntimeCrud({
     total: 0,
   })
   const datasource = computed(() => unref(pageSchema)?.datasource || unref(pageSchema)?.api || {})
-  const readonlyRuntime = computed(() => datasource.value?.mode === 'rest')
   const datasourceCapabilities = computed(() => getDatasourceCapabilities(datasource.value))
+  const readonlyRuntime = computed(() => !datasourceCapabilities.value.create && !datasourceCapabilities.value.update && !datasourceCapabilities.value.delete)
+  const queryItems = computed(() => Array.isArray(unref(pageSchema)?.queries) ? unref(pageSchema).queries : [])
+  const rowActions = computed(() => Array.isArray(unref(pageSchema)?.rowActions) ? unref(pageSchema).rowActions : [])
+  const batchActions = computed(() => Array.isArray(unref(pageSchema)?.batchActions) ? unref(pageSchema).batchActions : [])
 
   async function loadRecords() {
     recordsLoading.value = true
     runtimeError.value = ''
-    runtimeNotice.value = readonlyRuntime.value
-      ? 'External datasource is read-only in runtime preview. Create, edit, delete, and stats are disabled.'
+    runtimeNotice.value = datasource.value?.mode === 'rest' && readonlyRuntime.value
+      ? 'External datasource is read-only until write operations are enabled and endpoints are configured.'
       : ''
     isOffline.value = false
 
@@ -71,8 +80,7 @@ export function useRuntimeCrud({
         pageSize: pagination.pageSize,
         filters,
       })
-      const normalizedResult = normalizeRecordListResponse(result)
-
+      const normalizedResult = normalizeRecordListResponse(result, datasource.value)
       recordRows.value = normalizedResult.items
       pagination.total = normalizedResult.total
       pagination.currentPage = normalizedResult.page
@@ -80,6 +88,8 @@ export function useRuntimeCrud({
     } catch (error) {
       recordRows.value = fallbackRows()
       statsRows.value = recordRows.value
+      statsMetrics.value = []
+      statsCharts.value = []
       pagination.total = recordRows.value.length
       runtimeError.value = error?.message || 'Runtime data request failed'
       isOffline.value = true
@@ -91,6 +101,8 @@ export function useRuntimeCrud({
   async function loadStats(filters = buildFilters()) {
     if (readonlyRuntime.value) {
       statsRows.value = []
+      statsMetrics.value = []
+      statsCharts.value = []
       return
     }
 
@@ -101,12 +113,20 @@ export function useRuntimeCrud({
       filters,
     })
     statsRows.value = result.records || []
+    statsMetrics.value = result.metrics || []
+    statsCharts.value = result.charts || []
   }
 
   function resetSearch() {
-    searchableFields.value.forEach((field) => {
-      searchModel[field.prop] = ''
-    })
+    if (queryItems.value.length > 0) {
+      queryItems.value.forEach((query) => {
+        searchModel[query.id] = query.defaultValue ?? ''
+      })
+    } else {
+      searchableFields.value.forEach((field) => {
+        searchModel[field.prop] = ''
+      })
+    }
     pagination.currentPage = 1
     loadRecords()
   }
@@ -117,9 +137,7 @@ export function useRuntimeCrud({
   }
 
   function openCreateDialog() {
-    if (!ensureRuntimeDatasource('create')) {
-      return
-    }
+    if (!ensureRuntimeDatasource('create')) return
     dialogMode.value = 'create'
     editingRecordId.value = null
     dialogTitle.value = 'Create record'
@@ -129,9 +147,7 @@ export function useRuntimeCrud({
   }
 
   function openEditDialog(row) {
-    if (!ensureRuntimeDatasource('edit')) {
-      return
-    }
+    if (!ensureRuntimeDatasource('edit')) return
     dialogMode.value = 'edit'
     editingRecordId.value = row.id
     dialogTitle.value = 'Edit record'
@@ -147,19 +163,10 @@ export function useRuntimeCrud({
   }
 
   async function deleteSelectedRows() {
-    if (selectedRows.value.length === 0) {
-      return
-    }
-
+    if (selectedRows.value.length === 0) return
     try {
-      if (!ensureRuntimeDatasource('batch delete')) {
-        return
-      }
-      await ElMessageBox.confirm(
-        `Delete ${selectedRows.value.length} selected records?`,
-        'Delete records',
-        { type: 'warning' },
-      )
+      if (!ensureRuntimeDatasource('batch delete')) return
+      await ElMessageBox.confirm(`Delete ${selectedRows.value.length} selected records?`, 'Delete records', { type: 'warning' })
       await deleteRuntimeRecords(
         unref(pageId),
         selectedRows.value.map((row) => row.id),
@@ -180,18 +187,14 @@ export function useRuntimeCrud({
 
   async function deleteRecord(row, reload = true) {
     try {
-      if (!ensureRuntimeDatasource('delete')) {
-        return
-      }
+      if (!ensureRuntimeDatasource('delete')) return
       if (reload) {
         await ElMessageBox.confirm('Delete this record?', 'Delete record', { type: 'warning' })
       }
-
       await deleteRuntimeRecord(unref(pageId), row.id, {
         datasource: datasource.value,
         onRequestSettled: trackRequest,
       })
-
       if (reload) {
         ElMessage.success('Delete successful')
         await loadRecords()
@@ -203,19 +206,69 @@ export function useRuntimeCrud({
     }
   }
 
-  async function submitDialog() {
-    clearFormErrors()
-
-    if (!validateDialogForm()) {
+  async function runRowAction(action, row) {
+    if (!action) return
+    if (action.type === 'edit') {
+      openEditDialog(row)
       return
     }
-
-    submitLoading.value = true
-
+    if (action.type === 'delete') {
+      await deleteRecord(row, true)
+      return
+    }
     try {
-      if (!ensureRuntimeDatasource(dialogMode.value === 'edit' ? 'edit' : 'create')) {
-        return
+      await maybeConfirm(action.confirmText, 'Row action')
+      await executeRowAction(unref(pageId), action, row, {
+        datasource: datasource.value,
+        mode: unref(runtimeMode),
+        onRequestSettled: trackRequest,
+      })
+      ElMessage.success(action.successText || 'Action successful')
+      if (action.refreshAfterSuccess !== false) {
+        await loadRecords()
       }
+    } catch (error) {
+      if (!isCancelError(error)) {
+        ElMessage.error(action.errorText || error?.message || 'Action failed')
+      }
+    }
+  }
+
+  async function runBatchAction(action) {
+    if (!action || selectedRows.value.length === 0) return
+    if (action.type === 'batchDelete') {
+      await deleteSelectedRows()
+      return
+    }
+    try {
+      await maybeConfirm(action.confirmText, 'Batch action')
+      await executeBatchAction(
+        unref(pageId),
+        action,
+        selectedRows.value.map((row) => row.id),
+        {
+          datasource: datasource.value,
+          mode: unref(runtimeMode),
+          onRequestSettled: trackRequest,
+        },
+      )
+      ElMessage.success(action.successText || 'Action successful')
+      if (action.refreshAfterSuccess !== false) {
+        await loadRecords()
+      }
+    } catch (error) {
+      if (!isCancelError(error)) {
+        ElMessage.error(action.errorText || error?.message || 'Action failed')
+      }
+    }
+  }
+
+  async function submitDialog() {
+    clearFormErrors()
+    if (!validateDialogForm()) return
+    submitLoading.value = true
+    try {
+      if (!ensureRuntimeDatasource(dialogMode.value === 'edit' ? 'edit' : 'create')) return
       if (dialogMode.value === 'edit') {
         await updateRuntimeRecord(unref(pageId), editingRecordId.value, toPlainRecord(dialogForm), {
           datasource: datasource.value,
@@ -229,7 +282,6 @@ export function useRuntimeCrud({
           onRequestSettled: trackRequest,
         })
       }
-
       dialogVisible.value = false
       ElMessage.success(dialogMode.value === 'edit' ? 'Edit successful' : 'Create successful')
       await loadRecords()
@@ -255,20 +307,23 @@ export function useRuntimeCrud({
   }
 
   function buildFilters() {
-    return buildSearchFilters(searchableFields.value, searchModel)
+    return buildSearchFilters(searchableFields.value, searchModel, queryItems.value)
   }
 
   function trackRequest(request) {
     const sanitized = sanitizeRequest(request)
+    sanitized.failureReason = classifyRequestFailure(sanitized)
+    sanitized.responseSummary = summarizeResponse(sanitized)
     lastRequest.value = sanitized
     requestHistory.value = [sanitized, ...requestHistory.value].slice(0, 20)
   }
 
   function ensureRuntimeDatasource(actionLabel = 'write') {
-    if (!readonlyRuntime.value) {
+    const keyMap = { create: 'create', edit: 'update', delete: 'delete', 'batch delete': 'batchDelete' }
+    if (datasourceCapabilities.value[keyMap[actionLabel] || 'create']) {
       return true
     }
-    ElMessage.warning(`External datasource does not support ${actionLabel}`)
+    ElMessage.warning(`The current datasource does not support ${actionLabel}`)
     return false
   }
 
@@ -282,6 +337,8 @@ export function useRuntimeCrud({
     selectedRows,
     recordRows,
     statsRows,
+    statsMetrics,
+    statsCharts,
     runtimeError,
     runtimeNotice,
     isOffline,
@@ -290,6 +347,9 @@ export function useRuntimeCrud({
     readonlyRuntime,
     datasourceCapabilities,
     pagination,
+    queryItems,
+    rowActions,
+    batchActions,
     loadRecords,
     loadStats,
     resetSearch,
@@ -299,6 +359,8 @@ export function useRuntimeCrud({
     openSelectedEditDialog,
     deleteSelectedRows,
     deleteRecord,
+    runRowAction,
+    runBatchAction,
     submitDialog,
   }
 }
@@ -308,6 +370,7 @@ function sanitizeRequest(request = {}) {
     ...request,
     params: redactValue(request.params),
     body: redactValue(request.body),
+    payload: redactValue(request.payload),
   }
 }
 
@@ -322,25 +385,32 @@ function redactValue(value) {
   return value
 }
 
-function normalizeRecordListResponse(result) {
-  const rows = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : []
+function normalizeRecordListResponse(result, datasource = {}) {
+  const itemsKey = datasource?.responseItemsKey || 'items'
+  const totalKey = datasource?.responseTotalKey || 'total'
+  const idKey = datasource?.recordIdKey || 'id'
+  const rows = Array.isArray(result?.[itemsKey]) ? result[itemsKey] : Array.isArray(result) ? result : []
   const items = rows.map((item, index) => {
-    if (item?.data && item.id !== undefined) {
-      return { id: item.id, ...item.data }
+    if (item?.data && item[idKey] !== undefined) {
+      return { id: item[idKey], ...item.data }
     }
-
     return {
-      id: item?.id ?? index + 1,
+      id: item?.[idKey] ?? index + 1,
       ...item,
     }
   })
 
   return {
     items,
-    total: Number(result?.total ?? items.length),
+    total: Number(result?.[totalKey] ?? items.length),
     page: Number(result?.page ?? 1),
     pageSize: Number(result?.pageSize ?? (items.length || 10)),
   }
+}
+
+async function maybeConfirm(message, title) {
+  if (!message) return
+  await ElMessageBox.confirm(message, title, { type: 'warning' })
 }
 
 function isCancelError(error) {

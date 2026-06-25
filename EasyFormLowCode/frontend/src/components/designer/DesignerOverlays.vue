@@ -55,15 +55,22 @@
       <div class="export-dialog">
         <p>导出当前 PageSchema，以及基于统一字段注册表生成的 Vue 单文件组件。</p>
         <el-button type="primary" plain :icon="Document" @click="emit('download-schema')">下载 schema JSON</el-button>
+        <el-button type="primary" plain :icon="Collection" @click="emit('download-template')">下载 template JSON</el-button>
         <el-button type="primary" :icon="Upload" @click="emit('download-vue-sfc')">下载 Vue SFC</el-button>
+        <el-divider />
+        <el-button plain :icon="FolderOpened" @click="triggerImport('schema')">导入 schema JSON</el-button>
+        <el-button plain :icon="FolderOpened" @click="triggerImport('template')">导入 template JSON</el-button>
+        <input ref="schemaInputRef" type="file" accept=".json,application/json" class="hidden-input" @change="handleFileChange('schema', $event)" />
+        <input ref="templateInputRef" type="file" accept=".json,application/json" class="hidden-input" @change="handleFileChange('template', $event)" />
       </div>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { Document, Upload } from '@element-plus/icons-vue'
-import { ElButton, ElDialog, ElDrawer, ElEmpty, ElForm, ElFormItem } from 'element-plus'
+import { Collection, Document, FolderOpened, Upload } from '@element-plus/icons-vue'
+import { ElButton, ElDialog, ElDivider, ElDrawer, ElEmpty, ElForm, ElFormItem } from 'element-plus'
+import { ref } from 'vue'
 
 import FieldControl from '../../renderer/FieldControl.vue'
 
@@ -116,7 +123,10 @@ defineProps({
 
 const emit = defineEmits([
   'download-schema',
+  'download-template',
   'download-vue-sfc',
+  'import-schema',
+  'import-template',
   'load-versions',
   'restore-version',
   'select-field',
@@ -128,6 +138,26 @@ const emit = defineEmits([
   'update:versionDrawerVisible',
 ])
 
+const schemaInputRef = ref(null)
+const templateInputRef = ref(null)
+
+function triggerImport(type) {
+  if (type === 'template') {
+    templateInputRef.value?.click()
+    return
+  }
+  schemaInputRef.value?.click()
+}
+
+function handleFileChange(type, event) {
+  const [file] = event?.target?.files || []
+  if (!file) {
+    return
+  }
+  emit(type === 'template' ? 'import-template' : 'import-schema', file)
+  event.target.value = ''
+}
+
 function buildVersionSummary(schema) {
   return JSON.stringify(
     {
@@ -138,6 +168,7 @@ function buildVersionSummary(schema) {
         type: field.type,
       })),
       charts: schema.charts || [],
+      metrics: schema.metrics || [],
     },
     null,
     2,
@@ -202,5 +233,9 @@ function formatDateTime(value) {
 .export-dialog p {
   margin: 0;
   color: #6b7280;
+}
+
+.hidden-input {
+  display: none;
 }
 </style>

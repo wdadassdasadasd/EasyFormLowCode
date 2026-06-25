@@ -15,6 +15,8 @@ class Page(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    entity_id: Mapped[int | None] = mapped_column(ForeignKey("entities.id"), nullable=True, index=True)
+    template_key: Mapped[str | None] = mapped_column(String(40), nullable=True)
     page_key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120), default="用户管理")
     schema_json: Mapped[str] = mapped_column(Text)

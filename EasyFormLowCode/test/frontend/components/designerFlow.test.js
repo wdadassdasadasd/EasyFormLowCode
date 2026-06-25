@@ -220,4 +220,24 @@ describe('designer flow integration', () => {
     expect(wrapper.vm.tableFields.some((field) => field.label === '姓名')).toBe(true)
     expect(wrapper.text()).toContain('姓名')
   })
+
+  it('adds a material with one card click', async () => {
+    const wrapper = mount(DesignerHarness, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          Draggable: { template: '<div><slot name="item" v-for="item in list" :element="item" /></div>', props: ['list'] },
+          ChartRenderer: { template: '<div />' },
+          RequestInspector: { template: '<div />' },
+          TableFieldColumn: { props: ['field'], template: '<div />' },
+          FieldControl: { template: '<input />' },
+        },
+      },
+    })
+    const beforeCount = wrapper.vm.pageSchema.fields.length
+
+    await wrapper.find('.material-card').trigger('click')
+
+    expect(wrapper.vm.pageSchema.fields).toHaveLength(beforeCount + 1)
+  })
 })

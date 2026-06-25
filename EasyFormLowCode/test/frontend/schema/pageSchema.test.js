@@ -5,7 +5,7 @@ import contractFixture from '../../fixtures/page-schema-contract.json'
 
 describe('pageSchema normalization', () => {
   it('migrates a v1 document to the current schema version', () => {
-    expect(normalizePageSchema('legacy', { schemaVersion: 1, fields: [] }).schemaVersion).toBe(2)
+    expect(normalizePageSchema('legacy', { schemaVersion: 1, fields: [] }).schemaVersion).toBe(5)
   })
   it('fills page defaults and normalizes fields through one entrypoint', () => {
     const schema = normalizePageSchema('orders', {
@@ -17,7 +17,7 @@ describe('pageSchema normalization', () => {
     })
 
     expect(schema.id).toBe('orders')
-    expect(schema.schemaVersion).toBe(2)
+    expect(schema.schemaVersion).toBe(5)
     expect(schema.pageType).toBe('crud')
     expect(schema.datasource.listUrl).toBe('/api/runtime/pages/orders/records')
     expect(schema.api.listUrl).toBe('/api/runtime/pages/orders/records')
@@ -35,6 +35,10 @@ describe('pageSchema normalization', () => {
     expect(schema.charts.length).toBeGreaterThan(0)
   })
 
+  it('preserves an explicitly empty metrics array', () => {
+    expect(normalizePageSchema('empty-metrics', { metrics: [] }).metrics).toEqual([])
+  })
+
   it('migrates legacy api config into datasource and default actions', () => {
     const schema = normalizePageSchema('legacy', {
       api: {
@@ -44,10 +48,37 @@ describe('pageSchema normalization', () => {
       actions: null,
     })
 
-    expect(schema.schemaVersion).toBe(2)
+    expect(schema.schemaVersion).toBe(5)
     expect(schema.datasource.mode).toBe('rest')
     expect(schema.datasource.listUrl).toBe('https://example.com/list')
+    expect(schema.datasource.listMethod).toBe('GET')
+    expect(schema.datasource.requestBodyKey).toBe('data')
     expect(schema.actions.batchDelete).toBe(true)
+  })
+
+  it('normalizes queries and action lists for v5 schemas', () => {
+    const schema = normalizePageSchema('users', {
+      fields: [{ id: 'field_name', type: 'input', label: 'Name', prop: 'name' }],
+      queries: [{ id: 'q1', label: 'Name', fieldProp: 'name', paramKey: 'keyword', operator: 'contains' }],
+      rowActions: [{ id: 'edit_1', type: 'edit', label: 'Edit' }],
+      batchActions: [{ id: 'batch_1', type: 'request', label: 'Archive', method: 'post', url: '/archive' }],
+    })
+
+    expect(schema.queries[0]).toMatchObject({ id: 'q1', paramKey: 'keyword', operator: 'contains' })
+    expect(schema.rowActions[0]).toMatchObject({ id: 'edit_1', type: 'edit', label: 'Edit' })
+    expect(schema.batchActions[0]).toMatchObject({ id: 'batch_1', type: 'request', method: 'POST' })
+  })
+
+  it('rejects request actions without urls', () => {
+    const result = validatePageSchema({
+      fields: [{ id: 'field_name', prop: 'name', type: 'input' }],
+      rowActions: [{ id: 'row_1', type: 'request', label: 'Archive' }],
+      batchActions: [{ id: 'batch_1', type: 'request', label: 'Archive all' }],
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('rowActions[0].url is required for request actions')
+    expect(result.errors).toContain('batchActions[0].url is required for request actions')
   })
 
   it('reports invalid root-level schema shapes', () => {

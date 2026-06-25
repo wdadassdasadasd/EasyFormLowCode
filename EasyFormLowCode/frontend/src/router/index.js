@@ -19,6 +19,11 @@ const router = createRouter({
           component: () => import('../views/AppManage.vue'),
         },
         {
+          path: 'entities',
+          name: '数据模型',
+          component: () => import('../views/EntityManage.vue'),
+        },
+        {
           path: 'pagedesigner',
           name: '页面设计',
           component: () => import('../views/PageDesigner.vue'),

@@ -24,3 +24,7 @@ export function publishPage(pageId) {
     method: 'POST',
   })
 }
+
+export function syncEntityPage(pageId) {
+  return apiRequest(`/pages/${pageId}/sync-entity`, { method: 'POST' })
+}

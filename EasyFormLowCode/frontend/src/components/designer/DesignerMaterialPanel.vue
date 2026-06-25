@@ -6,7 +6,7 @@
         <small>点击添加</small>
       </div>
 
-      <div v-for="group in materialGroups" :key="group.name" class="material-group">
+      <div v-if="isFieldArea" v-for="group in materialGroups" :key="group.name" class="material-group">
         <div class="group-title">{{ group.name }}</div>
         <Draggable
           :list="group.items"
@@ -14,6 +14,7 @@
           :group="materialDragGroup"
           :sort="false"
           :clone="cloneMaterialItem"
+          handle=".material-drag-handle"
           class="material-grid"
           ghost-class="drag-ghost"
           chosen-class="drag-chosen"
@@ -22,12 +23,29 @@
           @end="emit('material-drag-end')"
         >
           <template #item="{ element: fieldType }">
-            <button class="material-card" type="button" @click="emit('add-field', fieldType.type, resolveAddArea())">
+            <button class="material-card" type="button" :title="fieldType.label" @click.stop="emit('add-field', fieldType.type, selectedArea)">
               <el-icon><component :is="iconMap[fieldType.material.icon]" /></el-icon>
               <span>{{ fieldType.label }}</span>
+              <span class="material-drag-handle" title="拖拽添加">⋮⋮</span>
             </button>
           </template>
         </Draggable>
+      </div>
+      <div v-else class="analytics-material-grid">
+        <button
+          v-for="material in analyticsMaterials"
+          :key="material.type"
+          class="analytics-material-card"
+          type="button"
+          :title="material.label"
+          draggable="true"
+          @click="emit('add-analytics', material.type)"
+          @dragstart="startAnalyticsDrag($event, material.type)"
+        >
+          <el-icon><component :is="iconMap[material.icon]" /></el-icon>
+          <span>{{ material.label }}</span>
+          <small>{{ material.description }}</small>
+        </button>
       </div>
     </section>
 
@@ -53,6 +71,7 @@
 
 <script setup>
 import { ElIcon } from 'element-plus'
+import { computed } from 'vue'
 import Draggable from 'vuedraggable'
 
 const props = defineProps({
@@ -76,9 +95,14 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  analyticsMaterials: {
+    type: Array,
+    default: () => [],
+  },
 })
 
-const emit = defineEmits(['add-field', 'material-drag-end', 'material-drag-start', 'select-area'])
+const emit = defineEmits(['add-analytics', 'add-field', 'material-drag-end', 'material-drag-start', 'select-area'])
+const isFieldArea = computed(() => ['search', 'table', 'form'].includes(props.selectedArea))
 
 function cloneMaterialItem(fieldType) {
   return {
@@ -88,9 +112,11 @@ function cloneMaterialItem(fieldType) {
   }
 }
 
-function resolveAddArea() {
-  return ['search', 'table', 'form'].includes(props.selectedArea) ? props.selectedArea : 'table'
+function startAnalyticsDrag(event, type) {
+  event.dataTransfer?.setData('application/x-lowcode-analytics', type)
+  event.dataTransfer.effectAllowed = 'copy'
 }
+
 </script>
 
 <style scoped>
@@ -143,7 +169,7 @@ function resolveAddArea() {
 
 .material-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
@@ -162,12 +188,54 @@ function resolveAddArea() {
   border-radius: 6px;
 }
 
+.material-card {
+  grid-template-columns: 18px 1fr 14px;
+}
+
+.material-drag-handle {
+  cursor: grab;
+  color: #9ca3af;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
+.analytics-material-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.analytics-material-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 4px 8px;
+  width: 100%;
+  padding: 10px;
+  color: #111827;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.analytics-material-card small {
+  grid-column: 2;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .material-card span,
 .module-card span {
   overflow: hidden;
   font-size: 13px;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .module-card + .module-card {

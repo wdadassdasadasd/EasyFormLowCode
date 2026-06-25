@@ -44,9 +44,12 @@ const SETTERS = {
     options: [
       { label: '日期', value: 'date' },
       { label: '日期时间', value: 'datetime' },
+      { label: '日期范围', value: 'daterange' },
+      { label: '日期时间范围', value: 'datetimerange' },
     ],
   },
   options: { prop: 'options', label: '选项列表', setter: 'options', group: 'options' },
+  multiple: { prop: 'multiple', label: '支持多选', setter: 'switch', group: 'options' },
   activeText: { prop: 'activeText', label: '开启文案', setter: 'input', group: 'options' },
   inactiveText: { prop: 'inactiveText', label: '关闭文案', setter: 'input', group: 'options' },
 }
@@ -86,9 +89,19 @@ function optionExporter(field) {
 }
 
 function selectExporter(field, modelName) {
-  return `<el-select v-model="${modelName}.${field.prop}" placeholder="${escapeHtml(field.placeholder || '请选择')}" clearable>
+  return `<el-select v-model="${modelName}.${field.prop}"${field.multiple ? ' multiple' : ''} placeholder="${escapeHtml(field.placeholder || '请选择')}" clearable>
             ${optionExporter(field)}
           </el-select>`
+}
+
+function checkboxExporter(field, modelName) {
+  return `<el-checkbox-group v-model="${modelName}.${field.prop}">
+            ${normalizeOptions(field.options).map((option) => `<el-checkbox :value='${escapeAttr(JSON.stringify(option.value))}'>${escapeHtml(option.label)}</el-checkbox>`).join('\n            ')}
+          </el-checkbox-group>`
+}
+
+function cascaderExporter(field, modelName) {
+  return `<el-cascader v-model="${modelName}.${field.prop}" :options='${escapeAttr(JSON.stringify(normalizeOptions(field.options)))}' clearable />`
 }
 
 function radioExporter(field, modelName) {
@@ -201,8 +214,32 @@ export const FIELD_TYPE_REGISTRY = {
     formControl: control('ElSelect', { clearable: true }),
     searchControl: control('ElSelect', { clearable: true }),
     table: { minWidth: 130, formatter: displayByOptions },
-    propertySetters: [...COMMON_SETTERS, SETTERS.placeholder, SETTERS.defaultValue, SETTERS.options],
+    propertySetters: [...COMMON_SETTERS, SETTERS.placeholder, SETTERS.defaultValue, SETTERS.multiple, SETTERS.options],
     exporter: { form: selectExporter, search: selectExporter, table: tableColumnExporter },
+    buildRules: buildRequiredRules,
+  },
+  checkbox: {
+    type: 'checkbox',
+    label: '复选框组',
+    material: { group: '选择字段', icon: 'CircleCheck', order: 75, visible: true },
+    defaultSchema: { ...BASE_FIELD_SCHEMA, type: 'checkbox', label: '复选框组', prop: 'checkbox', defaultValue: [], options: RADIO_DEFAULTS },
+    formControl: control('ElCheckboxGroup'),
+    searchControl: control('ElCheckboxGroup'),
+    table: { minWidth: 140, formatter: (field, value) => Array.isArray(value) ? value.map((item) => displayByOptions(field, item)).join('、') : displayByOptions(field, value) },
+    propertySetters: [...COMMON_SETTERS, SETTERS.options],
+    exporter: { form: checkboxExporter, search: checkboxExporter, table: tableColumnExporter },
+    buildRules: buildRequiredRules,
+  },
+  cascader: {
+    type: 'cascader',
+    label: '级联选择',
+    material: { group: '选择字段', icon: 'ArrowDown', order: 80, visible: true },
+    defaultSchema: { ...BASE_FIELD_SCHEMA, type: 'cascader', label: '级联选择', prop: 'cascader', defaultValue: [], options: OPTION_DEFAULTS },
+    formControl: control('ElCascader', { clearable: true }),
+    searchControl: control('ElCascader', { clearable: true }),
+    table: { minWidth: 140, formatter: displayByOptions },
+    propertySetters: [...COMMON_SETTERS, SETTERS.options],
+    exporter: { form: cascaderExporter, search: cascaderExporter, table: tableColumnExporter },
     buildRules: buildRequiredRules,
   },
   date: {
@@ -368,6 +405,10 @@ export function getFieldInitialValue(field) {
     return false
   }
 
+  if (normalized.type === 'checkbox' || (normalized.type === 'select' && normalized.multiple)) {
+    return []
+  }
+
   if (normalized.type === 'number') {
     return 0
   }
@@ -377,6 +418,9 @@ export function getFieldInitialValue(field) {
 
 export function formatFieldValue(field, value) {
   const normalized = normalizeField(field)
+  if (Array.isArray(field?.relationOptions) && field.relationOptions.length) {
+    normalized.options = normalizeOptions(field.relationOptions)
+  }
   return getFieldTypeConfig(normalized.type).table.formatter(normalized, value)
 }
 
@@ -421,7 +465,7 @@ export function ensureUniqueProp(prop, fieldId, fields = []) {
 }
 
 export function tableColumnExporter(field) {
-  if (['select', 'radio'].includes(field.type)) {
+  if (['select', 'radio', 'checkbox', 'cascader'].includes(field.type)) {
     return `<el-table-column prop="${field.prop}" label="${escapeHtml(field.label)}" min-width="${getFieldTypeConfig(field.type).table.minWidth}">
         <template #default="{ row }">{{ formatOptionValue(row.${field.prop}, ${JSON.stringify(normalizeOptions(field.options))}) }}</template>
       </el-table-column>`

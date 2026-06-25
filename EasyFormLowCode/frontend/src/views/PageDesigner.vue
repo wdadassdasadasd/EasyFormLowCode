@@ -9,14 +9,33 @@
       </el-button>
     </div>
 
+    <template v-if="isCompactLayout">
+      <el-drawer :model-value="showMaterialPanel" direction="ltr" size="320px" @update:model-value="showMaterialPanel = $event">
+        <DesignerMaterialPanel
+          :icon-map="iconMap"
+          :analytics-materials="analyticsMaterials"
+          :material-drag-group="materialDragGroup"
+          :material-groups="materialGroups"
+          :page-modules="pageModules"
+          :selected-area="selectedArea"
+          @add-field="addField"
+          @add-analytics="addAnalytics"
+          @material-drag-end="handleMaterialDragEnd"
+          @material-drag-start="handleMaterialDragStart"
+          @select-area="handleAreaSelect"
+        />
+      </el-drawer>
+    </template>
     <DesignerMaterialPanel
-      v-show="!isCompactLayout || showMaterialPanel"
+      v-else
       :icon-map="iconMap"
+      :analytics-materials="analyticsMaterials"
       :material-drag-group="materialDragGroup"
       :material-groups="materialGroups"
       :page-modules="pageModules"
       :selected-area="selectedArea"
       @add-field="addField"
+      @add-analytics="addAnalytics"
       @material-drag-end="handleMaterialDragEnd"
       @material-drag-start="handleMaterialDragStart"
       @select-area="handleAreaSelect"
@@ -36,6 +55,7 @@
       :page-actions="effectivePageActions"
       :page-schema="pageSchema"
       :pagination="pagination"
+      :row-actions="rowActions"
       :record-rows="recordRows"
       :records-loading="recordsLoading"
       :readonly-runtime="readonlyRuntime"
@@ -43,37 +63,80 @@
       :search-model="searchModel"
       :searchable-fields="searchableFields"
       :selected-area="selectedArea"
+      :batch-actions="batchActions"
+      :selected-chart-id="selectedChartId"
       :selected-field-id="selectedFieldId"
+      :selected-metric-id="selectedMetricId"
       :selected-rows="selectedRows"
       :stats-rows="statsRows"
       :status-text="statusText"
       :table-fields="tableFields"
       @apply-search="applySearch"
+      @analytics-drop="handleAnalyticsDrop"
       @delete-record="deleteRecord"
       @delete-selected="deleteSelectedRows"
       @drop-change="handleDropChange"
       @open-create="openCreateDialog"
       @open-edit="openEditDialog"
       @open-selected-edit="openSelectedEditDialog"
+      @run-batch-action="runBatchAction"
+      @run-row-action="runRowAction"
       @reset-search="resetSearch"
       @select-area="handleAreaSelect"
+      @select-chart="selectChart"
       @select-field="selectField"
+      @select-metric="selectMetric"
       @update-dialog-field="updateDialogField"
       @update-pagination="updatePagination"
       @update-search-field="updateSearchField"
       @update-selected-rows="selectedRows = $event"
     />
 
+    <template v-if="isCompactLayout">
+      <el-drawer :model-value="showPropertyPanel" size="360px" @update:model-value="showPropertyPanel = $event">
+        <DesignerPropertyPanel
+          :datasource-capabilities="datasourceCapabilities"
+          :field-prop-feedback="fieldPropFeedback"
+          :material-field-types="materialFieldTypes"
+          :page-schema="pageSchema"
+          :selected-area="selectedArea"
+          :selected-chart-id="selectedChartId"
+          :selected-field="selectedField"
+          :selected-metric-id="selectedMetricId"
+          :setter-groups="setterGroups"
+          :uses-option-default-value="usesOptionDefaultValue"
+          @add-metric="addMetric"
+          @add-chart="addChart"
+          @add-option="addOption"
+          @change-field-type="handleFieldTypeChange"
+          @delete-selected-field="deleteSelectedField"
+          @field-sort="handleFieldSort"
+          @move-field="moveField"
+          @normalize-field-prop="normalizeSelectedFieldProp"
+          @patch-field="applyFieldPatch"
+          @patch-page="applyPagePatch"
+          @remove-chart="removeChart"
+          @remove-option="removeOption"
+          @remove-metric="removeMetric"
+          @select-chart="selectChart"
+          @select-field="selectField"
+          @select-metric="selectMetric"
+        />
+      </el-drawer>
+    </template>
     <DesignerPropertyPanel
-      v-show="!isCompactLayout || showPropertyPanel"
+      v-else
       :datasource-capabilities="datasourceCapabilities"
       :field-prop-feedback="fieldPropFeedback"
       :material-field-types="materialFieldTypes"
       :page-schema="pageSchema"
       :selected-area="selectedArea"
+      :selected-chart-id="selectedChartId"
       :selected-field="selectedField"
+      :selected-metric-id="selectedMetricId"
       :setter-groups="setterGroups"
       :uses-option-default-value="usesOptionDefaultValue"
+      @add-metric="addMetric"
       @add-chart="addChart"
       @add-option="addOption"
       @change-field-type="handleFieldTypeChange"
@@ -85,7 +148,10 @@
       @patch-page="applyPagePatch"
       @remove-chart="removeChart"
       @remove-option="removeOption"
+      @remove-metric="removeMetric"
+      @select-chart="selectChart"
       @select-field="selectField"
+      @select-metric="selectMetric"
     />
 
     <DesignerOverlays
@@ -101,7 +167,10 @@
       :version-drawer-visible="versionDrawerVisible"
       :versions="versions"
       @download-schema="downloadSchema"
+      @download-template="downloadTemplate"
       @download-vue-sfc="downloadVueSfc"
+      @import-schema="importSchemaFile"
+      @import-template="importTemplateFile"
       @load-versions="loadVersions"
       @restore-version="restoreVersion"
       @select-field="selectField"
@@ -137,7 +206,7 @@ import DesignerCanvas from '../components/designer/DesignerCanvas.vue'
 import DesignerMaterialPanel from '../components/designer/DesignerMaterialPanel.vue'
 import DesignerOverlays from '../components/designer/DesignerOverlays.vue'
 import DesignerPropertyPanel from '../components/designer/DesignerPropertyPanel.vue'
-import { publishPage, savePageSchema as savePageSchemaRequest } from '../api/pages'
+import { publishPage, savePageSchema as savePageSchemaRequest, syncEntityPage as syncEntityPageRequest } from '../api/pages'
 import { listPageVersions, restorePageVersion } from '../api/versions'
 import { usePageSchema } from '../composables/usePageSchema'
 import { useSchemaHistory } from '../composables/useSchemaHistory'
@@ -155,7 +224,7 @@ import {
 } from '../schema/fieldTypes'
 import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
-import { buildSchemaJson, buildVueSfc, downloadTextFile } from '../utils/codeExporter'
+import { buildSchemaJson, buildTemplateJson, buildVueSfc, downloadTextFile, parseImportedSchema } from '../utils/codeExporter'
 import { applyDatasourceCapabilityToActions, normalizeEditableFieldProp } from '../utils/schemaEditor'
 
 const emit = defineEmits(['editor-status-change'])
@@ -163,6 +232,8 @@ const route = useRoute()
 const router = useRouter()
 const selectedFieldId = ref('')
 const selectedArea = ref('search')
+const selectedMetricId = ref('')
+const selectedChartId = ref('')
 const fieldPropFeedback = ref('')
 const isDraggingMaterial = ref(false)
 const isCompactLayout = ref(false)
@@ -185,6 +256,7 @@ const { pageSchema, pageStatus, replaceSchema, loadSchema: loadPageSchema, toPla
   syncModels: () => syncSchemaModels(),
   afterReplace: (schema) => {
     selectedFieldId.value = schema.fields[0]?.id || ''
+    syncAnalyticsSelection(schema)
   },
 })
 const { searchModel, dialogForm, formErrors, searchableFields, tableFields, formFields, syncModels } = useSchemaModels(pageSchema)
@@ -197,6 +269,8 @@ const {
   selectedRows,
   recordRows,
   statsRows,
+  statsMetrics,
+  statsCharts,
   runtimeError,
   isOffline,
   lastRequest,
@@ -204,6 +278,8 @@ const {
   readonlyRuntime,
   datasourceCapabilities,
   pagination,
+  rowActions,
+  batchActions,
   loadRecords,
   resetSearch,
   applySearch,
@@ -212,6 +288,8 @@ const {
   openSelectedEditDialog,
   deleteSelectedRows,
   deleteRecord,
+  runRowAction,
+  runBatchAction,
   submitDialog,
 } = useRuntimeCrud({
   pageId,
@@ -250,7 +328,15 @@ const iconMap = {
   Calendar,
   SwitchButton,
   CircleCheck,
+  DataAnalysis,
+  Histogram,
 }
+
+const analyticsMaterials = [
+  { type: 'metric', label: '统计卡片', description: '显示总数或条件统计', icon: 'DataAnalysis' },
+  { type: 'pie', label: '饼图', description: '按分类字段展示占比', icon: 'Histogram' },
+  { type: 'bar', label: '柱状图', description: '按分类字段比较数量', icon: 'Histogram' },
+]
 
 const pageModules = [
   { key: 'search', label: '搜索表单', icon: Search },
@@ -315,8 +401,28 @@ const editorStatusType = computed(() => {
 
   return typeMap[editorStatus.value] || 'warning'
 })
-const metricCards = computed(() => buildMetricCards(statsRows.value, pageSchema.fields))
-const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
+const metricCards = computed(() => (statsMetrics.value.length ? statsMetrics.value : buildMetricCards(statsRows.value, pageSchema.fields, pageSchema.metrics)))
+const normalizedCharts = computed(() => buildChartViewModels(pageSchema, statsCharts.value))
+
+function buildChartViewModels(schema, aggregates = []) {
+  const configured = schema.charts?.length ? schema.charts : buildDefaultCharts(schema.fields)
+  const aggregateById = new Map((aggregates || []).map((chart) => [chart.id, chart]))
+  return configured.map((chart) => ({
+    ...chart,
+    aggregate: aggregateById.get(chart.id) || null,
+  }))
+}
+
+function syncAnalyticsSelection(schema = pageSchema) {
+  const metricIds = (schema.metrics || []).map((metric) => metric.id)
+  const chartIds = (schema.charts || []).map((chart) => chart.id)
+  if (!metricIds.includes(selectedMetricId.value)) {
+    selectedMetricId.value = metricIds[0] || ''
+  }
+  if (!chartIds.includes(selectedChartId.value)) {
+    selectedChartId.value = chartIds[0] || ''
+  }
+}
 
 watch(
   [editorStatusText, editorStatusType],
@@ -344,6 +450,14 @@ watch(
 watch(selectedFieldId, () => {
   fieldPropFeedback.value = ''
 })
+
+watch(
+  () => [(pageSchema.metrics || []).map((metric) => metric.id).join('|'), (pageSchema.charts || []).map((chart) => chart.id).join('|')],
+  () => {
+    syncAnalyticsSelection()
+  },
+  { immediate: true },
+)
 
 watch(pageId, async () => {
   setEditorStatus('loading')
@@ -416,6 +530,22 @@ async function publishSchema() {
   }
 }
 
+async function syncEntityPage() {
+  if (!pageSchema.entity?.id) {
+    ElMessage.info('当前页面未绑定数据实体')
+    return
+  }
+  try {
+    const result = await syncEntityPageRequest(pageId.value)
+    replaceSchema(result.schema_json)
+    setEditorStatus('dirty')
+    statusText.value = '已同步实体新增字段，请保存并发布'
+    ElMessage.success('实体字段已同步到页面')
+  } catch (error) {
+    ElMessage.error(error?.message || '实体字段同步失败')
+  }
+}
+
 function addField(type, area = 'table') {
   const field = createDroppedField(type, area, pageSchema.fields)
   pageSchema.fields.push(field)
@@ -470,11 +600,71 @@ function selectField(fieldId) {
   }
 }
 
+function selectMetric(metricId) {
+  selectedArea.value = 'metrics'
+  selectedMetricId.value = metricId
+  selectedFieldId.value = ''
+  if (isCompactLayout.value) {
+    showPropertyPanel.value = true
+  }
+}
+
+function selectChart(chartId) {
+  selectedArea.value = 'charts'
+  selectedChartId.value = chartId
+  selectedFieldId.value = ''
+  if (isCompactLayout.value) {
+    showPropertyPanel.value = true
+  }
+}
+
 function handleAreaSelect(area) {
   selectedArea.value = area
+  selectedFieldId.value = ''
+  if (area === 'metrics') {
+    selectedMetricId.value = pageSchema.metrics?.[0]?.id || ''
+  }
+  if (area === 'charts') {
+    selectedChartId.value = pageSchema.charts?.[0]?.id || ''
+  }
   if (isCompactLayout.value && ['search', 'table', 'form'].includes(area)) {
     showMaterialPanel.value = true
   }
+}
+
+function addMetric() {
+  const id = `metric_${Date.now()}`
+  pageSchema.metrics = [...(pageSchema.metrics || []), {
+    id,
+    title: '新统计卡片',
+    type: 'total',
+    tone: 'blue',
+  }]
+  selectMetric(id)
+  markSchemaDirty()
+}
+
+function addAnalytics(type) {
+  if (type === 'metric') {
+    addMetric()
+    return
+  }
+  addChart(type)
+}
+
+function handleAnalyticsDrop(area, event) {
+  const type = event?.dataTransfer?.getData('application/x-lowcode-analytics')
+  if (!type || (area === 'metrics' && type !== 'metric') || (area === 'charts' && type === 'metric')) return
+  addAnalytics(type)
+}
+
+function removeMetric(index) {
+  const removedId = pageSchema.metrics[index]?.id
+  pageSchema.metrics.splice(index, 1)
+  if (selectedMetricId.value === removedId) {
+    selectedMetricId.value = pageSchema.metrics[Math.max(index - 1, 0)]?.id || pageSchema.metrics[0]?.id || ''
+  }
+  markSchemaDirty()
 }
 
 function applyPagePatch(patch) {
@@ -602,23 +792,28 @@ function removeOption(index) {
   markSchemaDirty()
 }
 
-function addChart() {
+function addChart(chartType = 'pie') {
   const field = pageSchema.fields[0]
   const nextCharts = [...normalizedCharts.value]
+  const id = `chart_${Date.now()}`
   nextCharts.push({
-    id: `chart_${Date.now()}`,
-    type: 'pie',
+    id,
+    type: chartType,
     title: '新图表',
     dimension: field?.prop || '',
     metric: 'count',
   })
-  pageSchema.charts = nextCharts
-  selectedArea.value = 'charts'
+  pageSchema.charts = nextCharts.map(({ aggregate, ...chart }) => chart)
+  selectChart(id)
   markSchemaDirty()
 }
 
 function removeChart(index) {
+  const removedId = pageSchema.charts[index]?.id
   pageSchema.charts.splice(index, 1)
+  if (selectedChartId.value === removedId) {
+    selectedChartId.value = pageSchema.charts[Math.max(index - 1, 0)]?.id || pageSchema.charts[0]?.id || ''
+  }
   markSchemaDirty()
 }
 
@@ -761,8 +956,54 @@ function downloadSchema() {
   downloadTextFile(`${pageSchema.id || 'page'}-schema.json`, buildSchemaJson(toPlainSchema()), 'application/json;charset=utf-8')
 }
 
+function downloadTemplate() {
+  downloadTextFile(`${pageSchema.id || 'page'}-template.json`, buildTemplateJson(toPlainSchema()), 'application/json;charset=utf-8')
+}
+
 function downloadVueSfc() {
   downloadTextFile(`${pageSchema.id || 'page'}.vue`, buildVueSfc(toPlainSchema()), 'text/plain;charset=utf-8')
+}
+
+async function importSchemaFile(file) {
+  try {
+    const importedSchema = parseImportedSchema(await readFileText(file), pageId.value)
+    replaceSchema(importedSchema)
+    markSchemaDirty()
+    ElMessage.success('Schema 已导入到当前草稿')
+  } catch (error) {
+    ElMessage.error(error?.message || 'Schema 导入失败')
+  }
+}
+
+async function importTemplateFile(file) {
+  try {
+    const importedTemplate = parseImportedSchema(await readFileText(file), pageId.value)
+    const currentSchema = toPlainSchema()
+    const preserveRuntimeDatasource = currentSchema.entity?.id || currentSchema.datasource?.mode === 'runtime'
+    const mergedSchema = normalizePageSchema(pageId.value, {
+      ...currentSchema,
+      ...importedTemplate,
+      id: currentSchema.id,
+      title: currentSchema.title,
+      entity: currentSchema.entity,
+      datasource: preserveRuntimeDatasource ? currentSchema.datasource : (importedTemplate.datasource || currentSchema.datasource),
+      api: preserveRuntimeDatasource ? currentSchema.datasource : (importedTemplate.datasource || currentSchema.datasource),
+    })
+    replaceSchema(mergedSchema)
+    markSchemaDirty()
+    ElMessage.success('Template 已应用到当前页面草稿')
+  } catch (error) {
+    ElMessage.error(error?.message || 'Template 导入失败')
+  }
+}
+
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('文件读取失败'))
+    reader.readAsText(file, 'utf-8')
+  })
 }
 
 function emitEditorStatus() {
@@ -778,6 +1019,7 @@ defineExpose({
   previewPage,
   showVersion,
   exportSchema,
+  syncEntityPage,
   hasUnsavedChanges,
   redoSchema,
   editorStatusText,

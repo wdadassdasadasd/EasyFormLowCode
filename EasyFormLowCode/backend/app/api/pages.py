@@ -10,6 +10,7 @@ from app.services.page_service import (
     page_to_response,
     publish_page,
     save_page_schema,
+    sync_entity_page,
 )
 
 router = APIRouter(prefix="/pages", tags=["pages"])
@@ -42,6 +43,17 @@ def update_page_schema(
         page = save_page_schema(db, page_id, payload.name, payload.schema_data)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    return page_to_response(page)
+
+
+@router.post("/{page_id}/sync-entity", response_model=PageSchemaResponse)
+def sync_page_entity(page_id: str, db: Session = Depends(get_db)):
+    try:
+        page = sync_entity_page(db, page_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not page:
+        raise HTTPException(status_code=404, detail="page not found")
     return page_to_response(page)
 
 

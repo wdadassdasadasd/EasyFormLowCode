@@ -12,7 +12,7 @@ import {
   normalizeField,
 } from '../../../frontend/src/schema/fieldTypes'
 
-const OPEN_FIELD_TYPES = ['input', 'textarea', 'number', 'select', 'date', 'switch', 'radio']
+const OPEN_FIELD_TYPES = ['input', 'textarea', 'number', 'select', 'date', 'switch', 'radio', 'checkbox', 'cascader']
 
 describe('fieldTypes registry', () => {
   it('defines the required registry contract for every open field type', () => {
@@ -75,6 +75,16 @@ describe('fieldTypes registry', () => {
     expect(buildFieldRules(requiredInput).some((rule) => !rule.validator('abcd'))).toBe(true)
     expect(buildFieldRules(numberField).some((rule) => !rule.validator(0))).toBe(true)
     expect(getFieldInitialValue(createFieldByType('switch'))).toBe(false)
+  })
+
+  it('keeps checkbox and cascader defaults array-shaped without exposing a string setter', () => {
+    ;['checkbox', 'cascader'].forEach((type) => {
+      const field = createFieldByType(type)
+
+      expect(field.defaultValue).toEqual([])
+      expect(getFieldInitialValue(field)).toEqual([])
+      expect(getPropertySetters(field).map((setter) => setter.prop)).not.toContain('defaultValue')
+    })
   })
 
   it('exposes grouped property setters from the selected field type', () => {

@@ -19,6 +19,8 @@ class PageSchemaResponse(BaseModel):
     schema_data: dict[str, Any] = Field(alias="schema_json")
     published_version_no: int | None = None
     published_at: str | None = None
+    entity_id: int | None = None
+    template_key: str | None = None
 
 
 class PageSummaryResponse(BaseModel):
@@ -30,6 +32,8 @@ class PageSummaryResponse(BaseModel):
     updated_at: str
     published_version_no: int | None = None
     published_at: str | None = None
+    entity_id: int | None = None
+    template_key: str | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -50,6 +54,8 @@ class ProjectResponse(BaseModel):
 class PageCreate(BaseModel):
     page_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
     name: str = Field(min_length=1, max_length=120)
+    entity_id: int | None = None
+    template_key: str | None = Field(default=None, max_length=40)
 
 
 class PageMetadataUpdate(BaseModel):
@@ -81,6 +87,8 @@ class RuntimeRecordListResponse(BaseModel):
 class RuntimeStatsResponse(BaseModel):
     records: list[dict[str, Any]]
     total: int
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    charts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PageVersionResponse(BaseModel):

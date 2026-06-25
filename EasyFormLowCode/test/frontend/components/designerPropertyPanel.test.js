@@ -93,4 +93,23 @@ describe('DesignerPropertyPanel', () => {
     expect(wrapper.text()).toContain('Prop 已自动调整为 role_2')
     expect(wrapper.findAll('.el-select-stub').length).toBeGreaterThanOrEqual(1)
   })
+  it('renders query and action configuration sections for stage-2 features', () => {
+    const wrapper = mountPanel({
+      pageSchema: {
+        id: 'demo',
+        title: 'Demo',
+        datasource: { mode: 'rest' },
+        actions: { search: true, reset: true, create: true, edit: true, delete: true, batchDelete: true },
+        fields: [{ id: 'field_name', label: 'Name', prop: 'name', type: 'input', searchable: true }],
+        charts: [],
+        queries: [{ id: 'query_name', label: 'Name', fieldProp: 'name', paramKey: 'name', operator: 'contains', defaultValue: '' }],
+        rowActions: [{ id: 'row_request', type: 'request', label: 'Sync', method: 'POST', url: '/sync/:id', refreshAfterSuccess: true }],
+        batchActions: [{ id: 'batch_request', type: 'request', label: 'Archive', method: 'POST', url: '/archive', refreshAfterSuccess: true }],
+      },
+    })
+
+    expect(wrapper.text()).toContain('Name')
+    expect(wrapper.text()).toContain('Sync')
+    expect(wrapper.text()).toContain('Archive')
+  })
 })

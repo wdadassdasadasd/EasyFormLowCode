@@ -7,7 +7,10 @@ import {
 import { normalizeField } from './fieldTypes'
 
 const VALID_DATASOURCE_MODES = new Set(['runtime', 'rest'])
-const VALID_FIELD_TYPES = new Set(['input', 'textarea', 'number', 'select', 'radio', 'date', 'switch'])
+const VALID_FIELD_TYPES = new Set(['input', 'textarea', 'number', 'select', 'radio', 'checkbox', 'cascader', 'date', 'switch'])
+const VALID_QUERY_OPERATORS = new Set(['contains', 'eq'])
+const VALID_ROW_ACTION_TYPES = new Set(['edit', 'delete', 'request'])
+const VALID_BATCH_ACTION_TYPES = new Set(['batchDelete', 'request'])
 
 export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   const source = isPlainObject(schema) ? clonePageSchema(schema) : {}
@@ -17,6 +20,16 @@ export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   version = Math.max(version, 1)
   while (version < SCHEMA_VERSION) {
     if (version === 1) migrated.schemaVersion = 2
+    if (version === 2) migrated.metrics = Array.isArray(migrated.metrics) ? migrated.metrics : []
+    if (version === 3) {
+      migrated.entity = isPlainObject(migrated.entity) ? migrated.entity : null
+      migrated.templateKey = typeof migrated.templateKey === 'string' ? migrated.templateKey : null
+    }
+    if (version === 4) {
+      migrated.queries = Array.isArray(migrated.queries) ? migrated.queries : []
+      migrated.rowActions = Array.isArray(migrated.rowActions) ? migrated.rowActions : []
+      migrated.batchActions = Array.isArray(migrated.batchActions) ? migrated.batchActions : []
+    }
     version += 1
   }
   migrated.schemaVersion = SCHEMA_VERSION
@@ -24,19 +37,15 @@ export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   if (!isPlainObject(migrated.datasource) && isPlainObject(migrated.api)) {
     migrated.datasource = { ...migrated.api }
   }
-
   if (!isPlainObject(migrated.api) && isPlainObject(migrated.datasource)) {
     migrated.api = { ...migrated.datasource }
   }
-
   if (!isPlainObject(migrated.actions)) {
     migrated.actions = { ...DEFAULT_PAGE_ACTIONS }
   }
-
   if (!migrated.id) {
     migrated.id = pageId
   }
-
   return migrated
 }
 
@@ -57,6 +66,12 @@ export function getPageSchemaValidationErrors(schema = {}) {
     ['table', (value) => isPlainObject(value) || value === undefined, 'table must be an object'],
     ['formDialog', (value) => isPlainObject(value) || value === undefined, 'formDialog must be an object'],
     ['charts', (value) => Array.isArray(value) || value === undefined, 'charts must be an array'],
+    ['metrics', (value) => Array.isArray(value) || value === undefined, 'metrics must be an array'],
+    ['queries', (value) => Array.isArray(value) || value === undefined, 'queries must be an array'],
+    ['rowActions', (value) => Array.isArray(value) || value === undefined, 'rowActions must be an array'],
+    ['batchActions', (value) => Array.isArray(value) || value === undefined, 'batchActions must be an array'],
+    ['entity', (value) => isPlainObject(value) || value === null || value === undefined, 'entity must be an object'],
+    ['templateKey', (value) => typeof value === 'string' || value === null || value === undefined, 'templateKey must be a string'],
     ['actions', (value) => isPlainObject(value) || value === undefined, 'actions must be an object'],
   ]
 
@@ -74,6 +89,7 @@ export function getPageSchemaValidationErrors(schema = {}) {
   if (Array.isArray(schema.fields)) {
     const ids = new Set()
     const props = new Set()
+
     schema.fields.forEach((field, index) => {
       const prefix = `fields[${index}]`
       if (!isPlainObject(field)) {
@@ -87,29 +103,60 @@ export function getPageSchemaValidationErrors(schema = {}) {
       else if (props.has(field.prop)) errors.push(`duplicate field prop: ${field.prop}`)
       else props.add(field.prop)
       if (!VALID_FIELD_TYPES.has(field.type)) errors.push(`${prefix}.type is invalid`)
+      if (field.entityFieldId !== undefined && field.entityFieldId !== null && !Number.isInteger(field.entityFieldId)) {
+        errors.push(`${prefix}.entityFieldId must be an integer`)
+      }
       ;['searchable', 'tableVisible', 'formVisible', 'required'].forEach((key) => {
         if (key in field && typeof field[key] !== 'boolean') errors.push(`${prefix}.${key} must be a boolean`)
       })
-      if (['select', 'radio'].includes(field.type)) {
+      if (['select', 'radio', 'checkbox', 'cascader'].includes(field.type)) {
         if (!Array.isArray(field.options)) {
           errors.push(`${prefix}.options must be an array`)
-          return
+        } else {
+          const values = new Set()
+          field.options.forEach((option) => {
+            if (!isPlainObject(option) || !String(option.label || '').trim()) errors.push(`${prefix}.options must include labels`)
+            const value = String(option?.value ?? '')
+            if (!value) errors.push(`${prefix}.options must include values`)
+            else if (values.has(value)) errors.push(`${prefix}.options values must be unique`)
+            else values.add(value)
+          })
         }
-        const values = new Set()
-        field.options.forEach((option) => {
-          if (!isPlainObject(option) || !String(option.label || '').trim()) errors.push(`${prefix}.options must include labels`)
-          const value = String(option?.value ?? '')
-          if (!value) errors.push(`${prefix}.options must include values`)
-          else if (values.has(value)) errors.push(`${prefix}.options values must be unique`)
-          else values.add(value)
-        })
       }
     })
+
     if (Array.isArray(schema.charts)) {
       schema.charts.forEach((chart, index) => {
         if (!isPlainObject(chart)) errors.push(`charts[${index}] must be an object`)
         else if (chart.type !== 'metric' && !props.has(chart.dimension)) errors.push(`charts[${index}].dimension must reference a field prop`)
       })
+    }
+
+    if (Array.isArray(schema.metrics)) {
+      schema.metrics.forEach((metric, index) => {
+        if (!isPlainObject(metric)) errors.push(`metrics[${index}] must be an object`)
+        else if (!['total', 'match', 'recent'].includes(metric.type)) errors.push(`metrics[${index}].type is invalid`)
+        else if (metric.type !== 'total' && !props.has(metric.field)) errors.push(`metrics[${index}].field must reference a field prop`)
+      })
+    }
+
+    if (Array.isArray(schema.queries)) {
+      schema.queries.forEach((query, index) => {
+        if (!isPlainObject(query)) {
+          errors.push(`queries[${index}] must be an object`)
+          return
+        }
+        if (!props.has(query.fieldProp)) errors.push(`queries[${index}].fieldProp must reference a field prop`)
+        if (!VALID_QUERY_OPERATORS.has(query.operator)) errors.push(`queries[${index}].operator is invalid`)
+      })
+    }
+
+    if (Array.isArray(schema.rowActions)) {
+      schema.rowActions.forEach((action, index) => validateAction(errors, action, `rowActions[${index}]`, VALID_ROW_ACTION_TYPES))
+    }
+
+    if (Array.isArray(schema.batchActions)) {
+      schema.batchActions.forEach((action, index) => validateAction(errors, action, `batchActions[${index}]`, VALID_BATCH_ACTION_TYPES))
     }
   }
 
@@ -133,7 +180,6 @@ export function normalizePageSchema(pageId = 'user_manage', schema = {}) {
     fields.push(normalizeField(field, index + 1, fields))
     return fields
   }, [])
-
   const datasource = normalizeDatasource(pageId, source.datasource, source.api)
 
   return {
@@ -152,6 +198,12 @@ export function normalizePageSchema(pageId = 'user_manage', schema = {}) {
       : defaultSchema.formDialog,
     fields: normalizedFields,
     charts: Array.isArray(source.charts) && source.charts.length > 0 ? source.charts : defaultSchema.charts,
+    metrics: Array.isArray(source.metrics) ? source.metrics : defaultSchema.metrics,
+    queries: normalizeQueries(source.queries),
+    rowActions: normalizeActionsList(source.rowActions, 'row'),
+    batchActions: normalizeActionsList(source.batchActions, 'batch'),
+    entity: isPlainObject(source.entity) ? source.entity : null,
+    templateKey: typeof source.templateKey === 'string' ? source.templateKey : null,
   }
 }
 
@@ -176,6 +228,57 @@ export function normalizeDatasource(pageId = 'user_manage', datasource = {}, leg
     ...runtimeDatasource,
     ...base,
     mode,
+    requestBodyMode: base.requestBodyMode === 'plain' ? 'plain' : 'wrapped',
+  }
+}
+
+export function normalizeQueries(queries = []) {
+  return Array.isArray(queries)
+    ? queries
+        .filter((query) => isPlainObject(query))
+        .map((query, index) => ({
+          id: String(query.id || `query_${index + 1}`),
+          label: String(query.label || ''),
+          fieldProp: String(query.fieldProp || ''),
+          paramKey: String(query.paramKey || query.fieldProp || ''),
+          operator: VALID_QUERY_OPERATORS.has(query.operator) ? query.operator : 'contains',
+          defaultValue: query.defaultValue ?? '',
+        }))
+    : []
+}
+
+export function normalizeActionsList(actions = [], scope = 'row') {
+  const validTypes = scope === 'batch' ? VALID_BATCH_ACTION_TYPES : VALID_ROW_ACTION_TYPES
+  return Array.isArray(actions)
+    ? actions
+        .filter((action) => isPlainObject(action))
+        .map((action, index) => ({
+          id: String(action.id || `${scope}_action_${index + 1}`),
+          type: validTypes.has(action.type) ? action.type : scope === 'batch' ? 'request' : 'request',
+          label: String(action.label || ''),
+          method: action.method ? String(action.method).toUpperCase() : undefined,
+          url: action.url ? String(action.url) : undefined,
+          confirmText: action.confirmText ? String(action.confirmText) : '',
+          successText: action.successText ? String(action.successText) : '',
+          errorText: action.errorText ? String(action.errorText) : '',
+          refreshAfterSuccess: action.refreshAfterSuccess !== undefined ? Boolean(action.refreshAfterSuccess) : true,
+        }))
+    : []
+}
+
+function validateAction(errors, action, prefix, validTypes) {
+  if (!isPlainObject(action)) {
+    errors.push(`${prefix} must be an object`)
+    return
+  }
+  if (!validTypes.has(action.type)) {
+    errors.push(`${prefix}.type is invalid`)
+  }
+  if (!String(action.label || '').trim()) {
+    errors.push(`${prefix}.label is required`)
+  }
+  if (action.type === 'request' && !String(action.url || '').trim()) {
+    errors.push(`${prefix}.url is required for request actions`)
   }
 }
 

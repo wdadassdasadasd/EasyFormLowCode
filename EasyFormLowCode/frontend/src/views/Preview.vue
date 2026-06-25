@@ -67,6 +67,15 @@
           >
             删除
           </el-button>
+          <el-button
+            v-for="action in batchActions"
+            :key="action.id"
+            plain
+            :disabled="selectedRows.length === 0"
+            @click="runBatchAction(action)"
+          >
+            {{ action.label }}
+          </el-button>
         </div>
       </div>
 
@@ -79,10 +88,19 @@
       >
         <el-table-column v-if="pageActions.batchDelete" type="selection" width="44" />
         <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
-        <el-table-column v-if="showRowActions" label="操作" width="150" fixed="right">
+        <el-table-column v-if="showRowActions" label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click="openEditDialog(row)">编辑</el-button>
             <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click="deleteRecord(row)">删除</el-button>
+            <el-button
+              v-for="action in rowActions"
+              :key="action.id"
+              link
+              type="primary"
+              @click="runRowAction(action, row)"
+            >
+              {{ action.label }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -109,7 +127,7 @@
     </section>
 
     <section class="chart-grid">
-      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
+      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :aggregate="chart.aggregate" :records="statsRows" :fields="pageSchema.fields" />
     </section>
 
     <RequestInspector :request="lastRequest" :requests="requestHistory" />
@@ -177,6 +195,8 @@ const {
   selectedRows,
   recordRows,
   statsRows,
+  statsMetrics,
+  statsCharts,
   runtimeError,
   runtimeNotice,
   isOffline,
@@ -184,6 +204,8 @@ const {
   requestHistory,
   readonlyRuntime,
   pagination,
+  rowActions,
+  batchActions,
   loadRecords,
   resetSearch,
   applySearch,
@@ -192,6 +214,8 @@ const {
   openSelectedEditDialog,
   deleteSelectedRows,
   deleteRecord,
+  runRowAction,
+  runBatchAction,
   submitDialog,
 } = useRuntimeCrud({
   pageId,
@@ -221,9 +245,9 @@ const pageStatusTag = computed(() => {
   }
 })
 const showSearchPanel = computed(() => searchableFields.value.length > 0 || pageActions.value.search || pageActions.value.reset)
-const showRowActions = computed(() => pageActions.value.edit || pageActions.value.delete)
-const metricCards = computed(() => buildMetricCards(statsRows.value, pageSchema.fields))
-const normalizedCharts = computed(() => (pageSchema.charts?.length ? pageSchema.charts : buildDefaultCharts(pageSchema.fields)))
+const showRowActions = computed(() => pageActions.value.edit || pageActions.value.delete || rowActions.value.length > 0)
+const metricCards = computed(() => (statsMetrics.value.length ? statsMetrics.value : buildMetricCards(statsRows.value, pageSchema.fields, pageSchema.metrics)))
+const normalizedCharts = computed(() => buildChartViewModels(pageSchema, statsCharts.value))
 
 watch(
   () => [pagination.currentPage, pagination.pageSize],
@@ -269,6 +293,15 @@ async function loadSchema() {
       ? '已加载草稿 PageSchema'
       : '已加载发布 PageSchema'
     : '后端不可用，当前使用演示 PageSchema'
+}
+
+function buildChartViewModels(schema, aggregates = []) {
+  const configured = schema.charts?.length ? schema.charts : buildDefaultCharts(schema.fields)
+  const aggregateById = new Map((aggregates || []).map((chart) => [chart.id, chart]))
+  return configured.map((chart) => ({
+    ...chart,
+    aggregate: aggregateById.get(chart.id) || null,
+  }))
 }
 </script>
 

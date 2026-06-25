@@ -1,6 +1,9 @@
 import { formatFieldValue, getFieldsByUsage, normalizeField } from '../schema/fieldTypes'
 
-export function buildMetricCards(records = [], fields = []) {
+export function buildMetricCards(records = [], fields = [], metrics) {
+  if (Array.isArray(metrics)) {
+    return metrics.map((metric) => buildMetricCard(metric, records, fields))
+  }
   const total = records.length
   const statusField = findField(fields, ['status', 'enabled', 'switch'])
   const createdField = findField(fields, ['createdAt', 'created_at', 'date'])
@@ -14,6 +17,22 @@ export function buildMetricCards(records = [], fields = []) {
     { id: 'enabled', title: '启用记录', value: enabledCount, trend: `${total ? Math.round((enabledCount / total) * 100) : 0}% 占比`, tone: 'green' },
     { id: 'recent', title: '近 30 天新增', value: recentCount, trend: createdField ? createdField.label : '未配置日期字段', tone: 'orange' },
   ]
+}
+
+export function buildMetricCard(metric = {}, records = [], fields = []) {
+  const normalized = { id: metric.id || 'metric', title: metric.title || '数据统计', type: metric.type || 'total', tone: metric.tone || 'blue' }
+  const field = fields.find((item) => item.prop === metric.field)
+  let value = records.length
+  let trend = records.length ? '来自当前数据集' : '暂无数据'
+  if (normalized.type === 'match') {
+    value = records.filter((record) => String(record[metric.field]) === String(metric.value)).length
+    trend = field ? `${field.label} = ${metric.value ?? ''}` : '未配置统计字段'
+  }
+  if (normalized.type === 'recent') {
+    value = metric.field ? countRecentRecords(records, metric.field) : 0
+    trend = field ? field.label : '未配置日期字段'
+  }
+  return { ...normalized, value, trend }
 }
 
 export function aggregateChart(chart = {}, records = [], fields = []) {

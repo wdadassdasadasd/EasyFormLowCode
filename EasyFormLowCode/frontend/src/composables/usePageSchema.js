@@ -1,6 +1,7 @@
 import { reactive, ref, unref } from 'vue'
 
 import { getPage, getPublishedPage } from '../api/pages'
+import { listReferenceOptions } from '../api/entities'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import { clonePageSchema, normalizePageSchema } from '../schema/pageSchema'
 
@@ -32,6 +33,7 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
     try {
       const result = await (published ? getPublishedPage : getPage)(resolvePageId(pageId))
       replaceSchema(result.schema_json)
+      await hydrateRelationOptions()
       pageStatus.value = result.status
       publishedVersionNo.value = result.published_version_no ?? null
       publishedAt.value = result.published_at || ''
@@ -51,6 +53,19 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
 
   function toPlainSchema() {
     return normalizePageSchema(resolvePageId(pageId), clonePageSchema(pageSchema))
+  }
+
+  async function hydrateRelationOptions() {
+    const entityId = pageSchema.entity?.id
+    if (!entityId) return
+    const relationFields = pageSchema.fields.filter((field) => field.relation?.fieldId)
+    await Promise.all(relationFields.map(async (field) => {
+      try {
+        field.relationOptions = await listReferenceOptions(entityId, field.relation.fieldId)
+      } catch {
+        field.relationOptions = []
+      }
+    }))
   }
 
   return {

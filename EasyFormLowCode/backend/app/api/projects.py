@@ -60,7 +60,7 @@ def get_project_pages(project_id: int, db: Session = Depends(get_db)):
 @router.post("/projects/{project_id}/pages", response_model=PageSummaryResponse, status_code=status.HTTP_201_CREATED)
 def create_project_page(project_id: int, payload: PageCreate, db: Session = Depends(get_db)):
     try:
-        page = create_page(db, project_id, payload.page_id, payload.name)
+        page = create_page(db, project_id, payload.page_id, payload.name, payload.entity_id, payload.template_key)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:

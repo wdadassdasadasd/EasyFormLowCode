@@ -84,6 +84,15 @@
           >
             删除
           </el-button>
+          <el-button
+            v-for="action in batchActions"
+            :key="action.id"
+            plain
+            :disabled="selectedRows.length === 0"
+            @click.stop="emit('run-batch-action', action)"
+          >
+            {{ action.label }}
+          </el-button>
         </div>
       </div>
 
@@ -108,10 +117,19 @@
             </button>
           </template>
         </TableFieldColumn>
-        <el-table-column v-if="pageActions.edit || pageActions.delete" label="操作" width="146" fixed="right">
+        <el-table-column v-if="pageActions.edit || pageActions.delete || rowActions.length" label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click.stop="emit('open-edit', row)">编辑</el-button>
             <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click.stop="emit('delete-record', row)">删除</el-button>
+            <el-button
+              v-for="action in rowActions"
+              :key="action.id"
+              link
+              type="primary"
+              @click.stop="emit('run-row-action', action, row)"
+            >
+              {{ action.label }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -191,16 +209,30 @@
       </Draggable>
     </section>
 
-    <section class="metrics-grid" :class="{ selected: selectedArea === 'metrics' }" @click="emit('select-area', 'metrics')">
-      <div v-for="metric in metricCards" :key="metric.id" class="metric-card" :class="metric.tone">
+    <section class="metrics-grid" :class="{ selected: selectedArea === 'metrics' }" @click="emit('select-area', 'metrics')" @dragover.prevent @drop.prevent="emit('analytics-drop', 'metrics', $event)">
+      <div
+        v-for="metric in metricCards"
+        :key="metric.id"
+        class="metric-card"
+        :class="[metric.tone, { active: selectedMetricId === metric.id }]"
+        @click.stop="emit('select-metric', metric.id)"
+      >
         <span>{{ metric.title }}</span>
         <strong>{{ metric.value }}</strong>
         <small>{{ metric.trend }}</small>
       </div>
     </section>
 
-    <section class="chart-grid" :class="{ selected: selectedArea === 'charts' }" @click="emit('select-area', 'charts')">
-      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :records="statsRows" :fields="pageSchema.fields" />
+    <section class="chart-grid" :class="{ selected: selectedArea === 'charts' }" @click="emit('select-area', 'charts')" @dragover.prevent @drop.prevent="emit('analytics-drop', 'charts', $event)">
+      <div
+        v-for="chart in normalizedCharts"
+        :key="chart.id"
+        class="chart-select-target"
+        :class="{ active: selectedChartId === chart.id }"
+        @click.stop="emit('select-chart', chart.id)"
+      >
+        <ChartRenderer :chart="chart" :aggregate="chart.aggregate" :records="statsRows" :fields="pageSchema.fields" />
+      </div>
     </section>
 
     <RequestInspector :request="lastRequest" :requests="requestHistory" />
@@ -258,6 +290,10 @@ defineProps({
     type: Array,
     default: () => [],
   },
+  rowActions: {
+    type: Array,
+    default: () => [],
+  },
   pageActions: {
     type: Object,
     default: () => ({}),
@@ -290,6 +326,10 @@ defineProps({
     type: Object,
     required: true,
   },
+  batchActions: {
+    type: Array,
+    default: () => [],
+  },
   searchableFields: {
     type: Array,
     default: () => [],
@@ -298,7 +338,15 @@ defineProps({
     type: String,
     default: 'search',
   },
+  selectedChartId: {
+    type: String,
+    default: '',
+  },
   selectedFieldId: {
+    type: String,
+    default: '',
+  },
+  selectedMetricId: {
     type: String,
     default: '',
   },
@@ -322,15 +370,20 @@ defineProps({
 
 const emit = defineEmits([
   'apply-search',
+  'analytics-drop',
   'delete-record',
   'delete-selected',
   'drop-change',
   'open-create',
   'open-edit',
   'open-selected-edit',
+  'run-batch-action',
+  'run-row-action',
   'reset-search',
   'select-area',
+  'select-chart',
   'select-field',
+  'select-metric',
   'update-dialog-field',
   'update-pagination',
   'update-search-field',
@@ -460,14 +513,33 @@ const emit = defineEmits([
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.metrics-grid.selected,
+.chart-grid.selected {
+  padding: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+}
+
 .chart-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chart-select-target {
+  border: 1px solid transparent;
+  border-radius: 6px;
 }
 
 .metric-card {
   padding: 14px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
+}
+
+.metric-card.active,
+.chart-select-target.active {
+  border-color: #2563eb;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
 }
 
 .metric-card span,

@@ -33,6 +33,10 @@ import { aggregateChart } from '../utils/chartAggregator'
 use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
 const props = defineProps({
+  aggregate: {
+    type: Object,
+    default: null,
+  },
   chart: {
     type: Object,
     required: true,
@@ -47,7 +51,7 @@ const props = defineProps({
   },
 })
 
-const chartData = computed(() => aggregateChart(props.chart, props.records, props.fields))
+const chartData = computed(() => props.aggregate || aggregateChart(props.chart, props.records, props.fields))
 const chartOption = computed(() => {
   if (chartData.value.type === 'bar') {
     return {

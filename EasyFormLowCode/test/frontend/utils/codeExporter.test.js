@@ -1,7 +1,7 @@
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { describe, expect, it } from 'vitest'
 
-import { buildSchemaJson, buildVueSfc } from '../../../frontend/src/utils/codeExporter'
+import { buildSchemaJson, buildTemplateJson, buildVueSfc, parseImportedSchema } from '../../../frontend/src/utils/codeExporter'
 
 const schema = {
   id: 'user_manage',
@@ -107,6 +107,28 @@ describe('codeExporter', () => {
 
     expect(result).toContain('"title": "用户管理"')
     expect(JSON.parse(result).fields).toHaveLength(8)
+  })
+
+  it('exports template json without page instance fields and can import it back', () => {
+    const result = buildTemplateJson({
+      ...schema,
+      entity: { id: 1, name: 'User' },
+      datasource: { mode: 'runtime', listUrl: '/api/runtime/pages/user_manage/records' },
+      queries: [{ id: 'query_role', label: '角色', fieldProp: 'role', paramKey: 'role', operator: 'eq', defaultValue: '' }],
+      rowActions: [{ id: 'row_archive', type: 'request', label: '归档', method: 'POST', url: '/api/users/:id/archive' }],
+      batchActions: [{ id: 'batch_archive', type: 'request', label: '批量归档', method: 'POST', url: '/api/users/archive' }],
+    })
+
+    const parsed = JSON.parse(result)
+    expect(parsed.id).toBeUndefined()
+    expect(parsed.title).toBeUndefined()
+    expect(parsed.entity).toBeUndefined()
+    expect(parsed.queries).toHaveLength(1)
+    expect(parsed.rowActions[0].url).toBe('/api/users/:id/archive')
+
+    const imported = parseImportedSchema(result, 'orders')
+    expect(imported.id).toBe('orders')
+    expect(imported.rowActions[0].label).toBe('归档')
   })
 
   it('exports a Vue SFC from all visible field types and charts', () => {

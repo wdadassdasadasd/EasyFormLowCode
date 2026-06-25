@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 5
 
 DEFAULT_PAGE_ACTIONS = {
     "search": True,
@@ -15,7 +15,7 @@ DEFAULT_PAGE_ACTIONS = {
 }
 
 VALID_DATASOURCE_MODES = {"runtime", "rest"}
-FIELD_TYPES = {"input", "textarea", "number", "select", "radio", "date", "switch"}
+FIELD_TYPES = {"input", "textarea", "number", "select", "radio", "checkbox", "cascader", "date", "switch"}
 
 
 def build_runtime_datasource(page_id: str) -> dict[str, Any]:
@@ -25,6 +25,20 @@ def build_runtime_datasource(page_id: str) -> dict[str, Any]:
         "createUrl": f"/api/runtime/pages/{page_id}/records",
         "updateUrl": f"/api/runtime/pages/{page_id}/records/:id",
         "deleteUrl": f"/api/runtime/pages/{page_id}/records/:id",
+        "listMethod": "GET",
+        "createMethod": "POST",
+        "updateMethod": "PUT",
+        "deleteMethod": "DELETE",
+        "pageParamKey": "page",
+        "pageSizeParamKey": "pageSize",
+        "requestBodyMode": "wrapped",
+        "requestBodyKey": "data",
+        "responseItemsKey": "items",
+        "responseTotalKey": "total",
+        "recordIdKey": "id",
+        "errorMessageKey": "detail",
+        "successMessageKey": "message",
+        "restWriteEnabled": False,
     }
 
 
@@ -49,6 +63,12 @@ def get_minimal_schema(page_id: str) -> dict[str, Any]:
             "width": "600px",
         },
         "charts": [],
+        "metrics": [],
+        "queries": [],
+        "rowActions": [],
+        "batchActions": [],
+        "entity": None,
+        "templateKey": None,
     }
 
 
@@ -136,6 +156,11 @@ def create_crud_template(page_id: str, name: str) -> dict[str, Any]:
         {"id": "statusPie", "type": "pie", "title": "状态分布", "dimension": "status", "metric": "count"},
         {"id": "roleBar", "type": "bar", "title": "角色分布", "dimension": "role", "metric": "count"},
     ]
+    schema["metrics"] = [
+        {"id": "total", "title": "记录总数", "type": "total", "tone": "blue"},
+        {"id": "enabled", "title": "启用记录", "type": "match", "field": "status", "value": "enabled", "tone": "green"},
+        {"id": "recent", "title": "近 30 天新增", "type": "recent", "field": "createdAt", "tone": "orange"},
+    ]
     return schema
 
 
@@ -147,6 +172,15 @@ def migrate_page_schema(page_id: str, schema_json: dict[str, Any] | None) -> dic
     while version < SCHEMA_VERSION:
         if version == 1:
             source["schemaVersion"] = 2
+        if version == 2:
+            source["metrics"] = source.get("metrics") if isinstance(source.get("metrics"), list) else []
+        if version == 3:
+            source["entity"] = source.get("entity") if isinstance(source.get("entity"), dict) else None
+            source["templateKey"] = source.get("templateKey") if isinstance(source.get("templateKey"), str) else None
+        if version == 4:
+            source["queries"] = source.get("queries") if isinstance(source.get("queries"), list) else []
+            source["rowActions"] = source.get("rowActions") if isinstance(source.get("rowActions"), list) else []
+            source["batchActions"] = source.get("batchActions") if isinstance(source.get("batchActions"), list) else []
         version += 1
     source["schemaVersion"] = SCHEMA_VERSION
 
@@ -181,6 +215,12 @@ def get_page_schema_validation_errors(schema_json: dict[str, Any] | None) -> lis
         ("table", lambda value: isinstance(value, dict) or value is None, "table must be an object"),
         ("formDialog", lambda value: isinstance(value, dict) or value is None, "formDialog must be an object"),
         ("charts", lambda value: isinstance(value, list) or value is None, "charts must be an array"),
+        ("metrics", lambda value: isinstance(value, list) or value is None, "metrics must be an array"),
+        ("queries", lambda value: isinstance(value, list) or value is None, "queries must be an array"),
+        ("rowActions", lambda value: isinstance(value, list) or value is None, "rowActions must be an array"),
+        ("batchActions", lambda value: isinstance(value, list) or value is None, "batchActions must be an array"),
+        ("entity", lambda value: isinstance(value, dict) or value is None, "entity must be an object"),
+        ("templateKey", lambda value: isinstance(value, str) or value is None, "templateKey must be a string"),
         ("actions", lambda value: isinstance(value, dict) or value is None, "actions must be an object"),
     ]
 
@@ -227,7 +267,7 @@ def get_page_schema_validation_errors(schema_json: dict[str, Any] | None) -> lis
                 if key in field and not isinstance(field[key], bool):
                     errors.append(f"{prefix}.{key} must be a boolean")
             options = field.get("options", [])
-            if field_type in {"select", "radio"}:
+            if field_type in {"select", "radio", "checkbox", "cascader"}:
                 if not isinstance(options, list):
                     errors.append(f"{prefix}.options must be an array")
                 else:
@@ -251,6 +291,33 @@ def get_page_schema_validation_errors(schema_json: dict[str, Any] | None) -> lis
                     errors.append(f"charts[{index}] must be an object")
                 elif chart.get("type") != "metric" and chart.get("dimension") not in props:
                     errors.append(f"charts[{index}].dimension must reference a field prop")
+        metrics = schema_json.get("metrics")
+        if isinstance(metrics, list):
+            for index, metric in enumerate(metrics):
+                if not isinstance(metric, dict):
+                    errors.append(f"metrics[{index}] must be an object")
+                elif metric.get("type") not in {"total", "match", "recent"}:
+                    errors.append(f"metrics[{index}].type is invalid")
+                elif metric.get("type") != "total" and metric.get("field") not in props:
+                    errors.append(f"metrics[{index}].field must reference a field prop")
+        queries = schema_json.get("queries")
+        if isinstance(queries, list):
+            for index, query in enumerate(queries):
+                if not isinstance(query, dict):
+                    errors.append(f"queries[{index}] must be an object")
+                    continue
+                if query.get("fieldProp") not in props:
+                    errors.append(f"queries[{index}].fieldProp must reference a field prop")
+                if query.get("operator") not in {"contains", "eq"}:
+                    errors.append(f"queries[{index}].operator is invalid")
+        row_actions = schema_json.get("rowActions")
+        if isinstance(row_actions, list):
+            for index, action in enumerate(row_actions):
+                validate_action(errors, action, f"rowActions[{index}]", {"edit", "delete", "request"})
+        batch_actions = schema_json.get("batchActions")
+        if isinstance(batch_actions, list):
+            for index, action in enumerate(batch_actions):
+                validate_action(errors, action, f"batchActions[{index}]", {"batchDelete", "request"})
 
     return errors
 
@@ -317,6 +384,12 @@ def normalize_page_schema(page_id: str, schema_json: dict[str, Any] | None) -> d
         if isinstance(source.get("formDialog"), dict)
         else defaults["formDialog"],
         "charts": list(source["charts"]) if isinstance(source.get("charts"), list) else [],
+        "metrics": list(source["metrics"]) if isinstance(source.get("metrics"), list) else [],
+        "queries": list(source["queries"]) if isinstance(source.get("queries"), list) else [],
+        "rowActions": list(source["rowActions"]) if isinstance(source.get("rowActions"), list) else [],
+        "batchActions": list(source["batchActions"]) if isinstance(source.get("batchActions"), list) else [],
+        "entity": source.get("entity") if isinstance(source.get("entity"), dict) else None,
+        "templateKey": source.get("templateKey") if isinstance(source.get("templateKey"), str) else None,
     }
 
 
@@ -341,3 +414,15 @@ def normalize_datasource(
         **source,
         "mode": mode,
     }
+
+
+def validate_action(errors: list[str], action: Any, prefix: str, valid_types: set[str]) -> None:
+    if not isinstance(action, dict):
+        errors.append(f"{prefix} must be an object")
+        return
+    if action.get("type") not in valid_types:
+        errors.append(f"{prefix}.type is invalid")
+    if not isinstance(action.get("label"), str) or not action.get("label", "").strip():
+        errors.append(f"{prefix}.label is required")
+    if action.get("type") == "request" and not str(action.get("url") or "").strip():
+        errors.append(f"{prefix}.url is required for request actions")

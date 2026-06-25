@@ -6,6 +6,21 @@ export function buildSchemaJson(schema) {
   return JSON.stringify(normalizePageSchema(schema?.id, schema), null, 2)
 }
 
+export function buildTemplateJson(schema) {
+  const normalizedSchema = normalizePageSchema(schema?.id, schema)
+  const templateSchema = { ...normalizedSchema }
+  delete templateSchema.id
+  delete templateSchema.title
+  delete templateSchema.entity
+  if (templateSchema.datasource?.mode === 'runtime') {
+    templateSchema.datasource = {
+      mode: 'runtime',
+    }
+    templateSchema.api = { ...templateSchema.datasource }
+  }
+  return JSON.stringify(templateSchema, null, 2)
+}
+
 export function buildVueSfc(schema) {
   const normalizedSchema = normalizePageSchema(schema?.id, schema)
   const datasourceCapabilities = getDatasourceCapabilities(normalizedSchema.datasource)
@@ -21,6 +36,7 @@ export function buildVueSfc(schema) {
   const tableFields = getFieldsByUsage(normalizedSchema.fields, 'table')
   const formFields = getFieldsByUsage(normalizedSchema.fields, 'form')
   const charts = normalizedSchema.charts || []
+  const metrics = normalizedSchema.metrics || []
   const searchModel = buildInitialModel(searchableFields, '')
   const dialogForm = buildInitialModel(formFields)
 
@@ -118,17 +134,20 @@ const dialogForm = reactive(${JSON.stringify(dialogForm, null, 2)})
 const formFields = ${JSON.stringify(formFields, null, 2)}
 const fields = ${JSON.stringify(normalizedSchema.fields, null, 2)}
 const charts = ${JSON.stringify(charts, null, 2)}
+const metrics = ${JSON.stringify(metrics, null, 2)}
 const pageActions = PAGE_ACTIONS
 const datasourceCapabilities = DATASOURCE_CAPABILITIES
 const showSearchPanel = ${Boolean(searchableFields.length > 0 || normalizedSchema.actions.search || normalizedSchema.actions.reset)}
 
 const metricCards = computed(() => {
-  const total = rows.value.length
-  const enabled = rows.value.filter((row) => ['enabled', 'true', true, '启用'].includes(row.status ?? row.enabled)).length
-  return [
-    { id: 'total', title: '记录总数', value: total, trend: '当前数据集' },
-    { id: 'enabled', title: '启用记录', value: enabled, trend: total ? Math.round((enabled / total) * 100) + '% 占比' : '0% 占比' },
-  ]
+  return metrics.map((metric) => {
+    const value = metric.type === 'match'
+      ? rows.value.filter((row) => String(row[metric.field]) === String(metric.value)).length
+      : metric.type === 'recent'
+        ? rows.value.filter((row) => Date.parse(row[metric.field]) >= Date.now() - 30 * 24 * 60 * 60 * 1000).length
+        : rows.value.length
+    return { ...metric, value, trend: metric.type === 'total' ? '当前数据集' : metric.field || '未配置字段' }
+  })
 })
 
 const chartOptions = computed(() => {
@@ -446,6 +465,10 @@ export function downloadTextFile(filename, content, type = 'text/plain;charset=u
   link.download = filename
   link.click()
   URL.revokeObjectURL(url)
+}
+
+export function parseImportedSchema(content, pageId = 'user_manage') {
+  return normalizePageSchema(pageId, JSON.parse(content))
 }
 
 function renderSearchItem(field) {
