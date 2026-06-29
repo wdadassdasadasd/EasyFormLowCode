@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.page_schema import BatchDeletePayload, RuntimeRecordListResponse, RuntimeRecordPayload, RuntimeRecordResponse, RuntimeStatsResponse
-from app.services.page_service import (
+from app.services.page_runtime_service import (
     create_page_record,
     delete_page_records,
     delete_page_record,

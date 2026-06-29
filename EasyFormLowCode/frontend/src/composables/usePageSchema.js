@@ -2,6 +2,7 @@ import { reactive, ref, unref } from 'vue'
 
 import { getPage, getPublishedPage } from '../api/pages'
 import { listReferenceOptions } from '../api/entities'
+import { getDefaultPageSchema, normalizePageSchemaContract } from '../api/schemaContract'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import { clonePageSchema, normalizePageSchema } from '../schema/pageSchema'
 
@@ -32,14 +33,14 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
 
     try {
       const result = await (published ? getPublishedPage : getPage)(resolvePageId(pageId))
-      replaceSchema(result.schema_json)
+      replaceSchema(await normalizeSchema(result.schema_json))
       await hydrateRelationOptions()
       pageStatus.value = result.status
       publishedVersionNo.value = result.published_version_no ?? null
       publishedAt.value = result.published_at || ''
       return result
     } catch (error) {
-      replaceSchema(normalizePageSchema(resolvePageId(pageId)))
+      replaceSchema(await loadFallbackSchema())
       pageStatus.value = 'draft'
       publishedVersionNo.value = null
       publishedAt.value = ''
@@ -53,6 +54,24 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
 
   function toPlainSchema() {
     return normalizePageSchema(resolvePageId(pageId), clonePageSchema(pageSchema))
+  }
+
+  async function normalizeSchema(nextSchema) {
+    try {
+      const result = await normalizePageSchemaContract(resolvePageId(pageId), nextSchema)
+      return result.schema_json
+    } catch {
+      return normalizePageSchema(resolvePageId(pageId), nextSchema)
+    }
+  }
+
+  async function loadFallbackSchema() {
+    try {
+      const result = await getDefaultPageSchema(resolvePageId(pageId))
+      return result.schema_json
+    } catch {
+      return normalizePageSchema(resolvePageId(pageId))
+    }
   }
 
   async function hydrateRelationOptions() {
@@ -78,6 +97,7 @@ export function usePageSchema({ pageId = DEFAULT_PAGE_ID, syncModels, afterRepla
     schemaOffline,
     replaceSchema,
     loadSchema,
+    normalizeSchema,
     toPlainSchema,
   }
 }

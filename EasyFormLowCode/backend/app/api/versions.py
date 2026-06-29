@@ -3,10 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.page_schema import PageSchemaResponse, PageVersionResponse
-from app.services.page_service import (
+from app.services.page_schema_service import page_to_response
+from app.services.page_version_service import (
     get_page_version,
     list_page_versions,
-    page_to_response,
     restore_page_version,
     version_to_response,
 )

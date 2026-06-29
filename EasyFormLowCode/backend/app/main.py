@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import entities_router, pages_router, projects_router, runtime_router, versions_router
+from app.api import entities_router, pages_router, projects_router, runtime_router, schema_contract_router, versions_router
 from app.database import Base, engine, get_db
 from app.models import Entity, EntityField, EntityRecord, EntityRecordRelation, EntityRelation, Page, PageRecord, PageVersion, Project
 from app.services.database_migrations import run_database_migrations
@@ -28,5 +28,6 @@ app.add_middleware(
 app.include_router(pages_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(runtime_router, prefix="/api")
+app.include_router(schema_contract_router, prefix="/api")
 app.include_router(versions_router, prefix="/api")
 app.include_router(entities_router, prefix="/api")

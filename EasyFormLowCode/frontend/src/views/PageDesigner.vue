@@ -207,6 +207,7 @@ import DesignerMaterialPanel from '../components/designer/DesignerMaterialPanel.
 import DesignerOverlays from '../components/designer/DesignerOverlays.vue'
 import DesignerPropertyPanel from '../components/designer/DesignerPropertyPanel.vue'
 import { publishPage, savePageSchema as savePageSchemaRequest, syncEntityPage as syncEntityPageRequest } from '../api/pages'
+import { validatePageSchemaContract } from '../api/schemaContract'
 import { listPageVersions, restorePageVersion } from '../api/versions'
 import { usePageSchema } from '../composables/usePageSchema'
 import { useSchemaHistory } from '../composables/useSchemaHistory'
@@ -499,7 +500,13 @@ async function loadSchema() {
 }
 
 async function saveSchema() {
-  const validation = validatePageSchema(toPlainSchema())
+  const plainSchema = toPlainSchema()
+  let validation = validatePageSchema(plainSchema)
+  try {
+    validation = await validatePageSchemaContract(pageId.value, plainSchema)
+  } catch {
+    validation = validatePageSchema(plainSchema)
+  }
   if (!validation.valid) {
     ElMessage.error(`页面配置不合法：${validation.errors[0]}`)
     return
@@ -507,7 +514,7 @@ async function saveSchema() {
   try {
     const result = await savePageSchemaRequest(pageId.value, {
       name: pageSchema.title,
-      schema_json: toPlainSchema(),
+      schema_json: validation.schema_json || plainSchema,
     })
     pageStatus.value = result.status
     setEditorStatus('saved')

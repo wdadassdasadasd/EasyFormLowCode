@@ -3,14 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.page_schema import PageSchemaResponse, PageSchemaUpdate, PageSummaryResponse
-from app.services.page_service import (
+from app.services.entity_page_sync_service import sync_entity_page
+from app.services.page_schema_service import (
     get_or_create_page,
     list_pages,
     page_to_published_response,
     page_to_response,
     publish_page,
     save_page_schema,
-    sync_entity_page,
 )
 
 router = APIRouter(prefix="/pages", tags=["pages"])

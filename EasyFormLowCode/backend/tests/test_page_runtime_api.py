@@ -417,6 +417,55 @@ def test_shared_schema_contract_fixture_has_matching_backend_validation(client):
     assert invalid.status_code == 422
 
 
+def test_schema_contract_default_and_normalize_endpoints(client):
+    default_response = client.get("/api/schema-contract/page-schema/default?page_id=orders")
+    assert default_response.status_code == 200
+    default_schema = default_response.json()["schema_json"]
+    assert default_schema["id"] == "orders"
+    assert default_schema["schemaVersion"] == 5
+    assert default_schema["datasource"]["listUrl"] == "/api/runtime/pages/orders/records"
+
+    normalize_response = client.post(
+        "/api/schema-contract/page-schema/normalize",
+        json={
+            "page_id": "orders",
+            "schema_json": {
+                "schemaVersion": 1,
+                "title": "Orders",
+                "datasource": {"mode": "runtime"},
+                "fields": [],
+            },
+        },
+    )
+    assert normalize_response.status_code == 200
+    normalized_schema = normalize_response.json()["schema_json"]
+    assert normalized_schema["id"] == "orders"
+    assert normalized_schema["schemaVersion"] == 5
+    assert normalized_schema["api"] == normalized_schema["datasource"]
+
+
+def test_schema_contract_validate_endpoint_reports_stable_errors(client):
+    valid = client.post(
+        "/api/schema-contract/page-schema/validate",
+        json={"page_id": "contract_page", "schema_json": CONTRACT_FIXTURE["validPageSchema"]},
+    )
+    assert valid.status_code == 200
+    assert valid.json()["valid"] is True
+    assert valid.json()["errors"] == []
+    assert valid.json()["schema_json"]["schemaVersion"] == 5
+
+    invalid = client.post(
+        "/api/schema-contract/page-schema/validate",
+        json={"page_id": "contract_invalid", "schema_json": CONTRACT_FIXTURE["invalidPageSchema"]},
+    )
+    assert invalid.status_code == 200
+    payload = invalid.json()
+    assert payload["valid"] is False
+    assert "duplicate field id: duplicate" in payload["errors"]
+    assert "duplicate field prop: name" in payload["errors"]
+    assert "fields[1].type is invalid" in payload["errors"]
+
+
 def test_project_and_page_names_reject_blank_strings(client):
     blank_project = client.post("/api/projects", json={"name": "   "})
     assert blank_project.status_code == 422

@@ -10,16 +10,18 @@ from app.schemas.page_schema import (
     ProjectResponse,
     ProjectUpdate,
 )
-from app.services.page_service import (
+from app.services.page_catalog_service import (
     create_page,
-    create_project,
     delete_page,
+    page_to_summary,
+    update_page_metadata,
+)
+from app.services.project_service import (
+    create_project,
     get_project,
     list_project_pages,
     list_projects,
-    page_to_summary,
     project_to_response,
-    update_page_metadata,
     update_project,
 )
 

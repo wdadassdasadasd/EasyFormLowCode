@@ -99,3 +99,24 @@ class PageVersionResponse(BaseModel):
     message: str
     schema_data: dict[str, Any] = Field(alias="schema_json")
     created_at: str
+
+
+class PageSchemaContractPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    page_id: str = Field(default="user_manage", min_length=1, max_length=80)
+    schema_data: dict[str, Any] = Field(default_factory=dict, alias="schema_json")
+
+
+class PageSchemaContractResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    schema_data: dict[str, Any] = Field(alias="schema_json")
+
+
+class PageSchemaValidationResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    schema_data: dict[str, Any] = Field(alias="schema_json")
