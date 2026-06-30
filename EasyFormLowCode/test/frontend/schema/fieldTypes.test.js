@@ -12,7 +12,7 @@ import {
   normalizeField,
 } from '../../../frontend/src/schema/fieldTypes'
 
-const OPEN_FIELD_TYPES = ['input', 'textarea', 'number', 'select', 'date', 'switch', 'radio', 'checkbox', 'cascader']
+const OPEN_FIELD_TYPES = ['input', 'password', 'textarea', 'email', 'phone', 'url', 'number', 'slider', 'rate', 'select', 'date', 'datetime', 'time', 'switch', 'tag', 'radio', 'checkbox', 'cascader']
 
 describe('fieldTypes registry', () => {
   it('defines the required registry contract for every open field type', () => {

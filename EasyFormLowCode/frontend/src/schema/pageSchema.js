@@ -7,10 +7,33 @@ import {
 import { normalizeField } from './fieldTypes'
 
 const VALID_DATASOURCE_MODES = new Set(['runtime', 'rest'])
-const VALID_FIELD_TYPES = new Set(['input', 'textarea', 'number', 'select', 'radio', 'checkbox', 'cascader', 'date', 'switch'])
+const VALID_FIELD_TYPES = new Set([
+  'input',
+  'password',
+  'textarea',
+  'email',
+  'phone',
+  'url',
+  'number',
+  'slider',
+  'rate',
+  'select',
+  'radio',
+  'checkbox',
+  'cascader',
+  'switch',
+  'tag',
+  'date',
+  'datetime',
+  'time',
+])
 const VALID_QUERY_OPERATORS = new Set(['contains', 'eq'])
 const VALID_ROW_ACTION_TYPES = new Set(['edit', 'delete', 'request'])
 const VALID_BATCH_ACTION_TYPES = new Set(['batchDelete', 'request'])
+const VALID_METRIC_TYPES = new Set(['total', 'match', 'recent', 'sum', 'average', 'min', 'max', 'percent'])
+const VALID_CHART_TYPES = new Set(['metric', 'pie', 'bar', 'line', 'area', 'rankBar'])
+const VALID_CHART_METRICS = new Set(['count', 'sum', 'average', 'min', 'max'])
+const VALID_SORT_ORDERS = new Set(['asc', 'desc'])
 
 export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   const source = isPlainObject(schema) ? clonePageSchema(schema) : {}
@@ -29,6 +52,10 @@ export function migratePageSchema(pageId = 'user_manage', schema = {}) {
       migrated.queries = Array.isArray(migrated.queries) ? migrated.queries : []
       migrated.rowActions = Array.isArray(migrated.rowActions) ? migrated.rowActions : []
       migrated.batchActions = Array.isArray(migrated.batchActions) ? migrated.batchActions : []
+    }
+    if (version === 5) {
+      migrated.metrics = Array.isArray(migrated.metrics) ? migrated.metrics : []
+      migrated.charts = Array.isArray(migrated.charts) ? migrated.charts : []
     }
     version += 1
   }
@@ -89,6 +116,8 @@ export function getPageSchemaValidationErrors(schema = {}) {
   if (Array.isArray(schema.fields)) {
     const ids = new Set()
     const props = new Set()
+    const numericProps = new Set()
+    const dateProps = new Set()
 
     schema.fields.forEach((field, index) => {
       const prefix = `fields[${index}]`
@@ -103,13 +132,15 @@ export function getPageSchemaValidationErrors(schema = {}) {
       else if (props.has(field.prop)) errors.push(`duplicate field prop: ${field.prop}`)
       else props.add(field.prop)
       if (!VALID_FIELD_TYPES.has(field.type)) errors.push(`${prefix}.type is invalid`)
+      if (['number', 'slider', 'rate'].includes(field.type)) numericProps.add(String(field.prop))
+      if (['date', 'datetime', 'time'].includes(field.type)) dateProps.add(String(field.prop))
       if (field.entityFieldId !== undefined && field.entityFieldId !== null && !Number.isInteger(field.entityFieldId)) {
         errors.push(`${prefix}.entityFieldId must be an integer`)
       }
       ;['searchable', 'tableVisible', 'formVisible', 'required'].forEach((key) => {
         if (key in field && typeof field[key] !== 'boolean') errors.push(`${prefix}.${key} must be a boolean`)
       })
-      if (['select', 'radio', 'checkbox', 'cascader'].includes(field.type)) {
+      if (['select', 'radio', 'checkbox', 'cascader', 'tag'].includes(field.type)) {
         if (!Array.isArray(field.options)) {
           errors.push(`${prefix}.options must be an array`)
         } else {
@@ -126,18 +157,11 @@ export function getPageSchemaValidationErrors(schema = {}) {
     })
 
     if (Array.isArray(schema.charts)) {
-      schema.charts.forEach((chart, index) => {
-        if (!isPlainObject(chart)) errors.push(`charts[${index}] must be an object`)
-        else if (chart.type !== 'metric' && !props.has(chart.dimension)) errors.push(`charts[${index}].dimension must reference a field prop`)
-      })
+      schema.charts.forEach((chart, index) => validateChart(errors, chart, index, props, numericProps))
     }
 
     if (Array.isArray(schema.metrics)) {
-      schema.metrics.forEach((metric, index) => {
-        if (!isPlainObject(metric)) errors.push(`metrics[${index}] must be an object`)
-        else if (!['total', 'match', 'recent'].includes(metric.type)) errors.push(`metrics[${index}].type is invalid`)
-        else if (metric.type !== 'total' && !props.has(metric.field)) errors.push(`metrics[${index}].field must reference a field prop`)
-      })
+      schema.metrics.forEach((metric, index) => validateMetric(errors, metric, index, props, numericProps, dateProps))
     }
 
     if (Array.isArray(schema.queries)) {
@@ -197,8 +221,8 @@ export function normalizePageSchema(pageId = 'user_manage', schema = {}) {
       ? { ...defaultSchema.formDialog, ...source.formDialog }
       : defaultSchema.formDialog,
     fields: normalizedFields,
-    charts: Array.isArray(source.charts) && source.charts.length > 0 ? source.charts : defaultSchema.charts,
-    metrics: Array.isArray(source.metrics) ? source.metrics : defaultSchema.metrics,
+    charts: normalizeCharts(source.charts, defaultSchema.charts),
+    metrics: normalizeMetrics(source.metrics),
     queries: normalizeQueries(source.queries),
     rowActions: normalizeActionsList(source.rowActions, 'row'),
     batchActions: normalizeActionsList(source.batchActions, 'batch'),
@@ -266,6 +290,39 @@ export function normalizeActionsList(actions = [], scope = 'row') {
     : []
 }
 
+export function normalizeMetrics(metrics = []) {
+  return Array.isArray(metrics)
+    ? metrics.filter((metric) => isPlainObject(metric)).map((metric, index) => ({
+        id: String(metric.id || `metric_${index + 1}`),
+        title: String(metric.title || ''),
+        type: VALID_METRIC_TYPES.has(metric.type) ? metric.type : 'total',
+        field: metric.field ? String(metric.field) : '',
+        value: metric.value ?? '',
+        recentDays: Number(metric.recentDays) > 0 ? Number(metric.recentDays) : 30,
+        prefix: metric.prefix ? String(metric.prefix) : '',
+        suffix: metric.suffix ? String(metric.suffix) : '',
+        precision: Number.isInteger(metric.precision) ? metric.precision : 0,
+        tone: metric.tone ? String(metric.tone) : 'blue',
+      }))
+    : []
+}
+
+export function normalizeCharts(charts = [], fallback = []) {
+  const source = Array.isArray(charts) && charts.length > 0 ? charts : fallback
+  return source
+    .filter((chart) => isPlainObject(chart))
+    .map((chart, index) => ({
+      id: String(chart.id || `chart_${index + 1}`),
+      title: String(chart.title || ''),
+      type: VALID_CHART_TYPES.has(chart.type) ? chart.type : 'pie',
+      dimension: chart.dimension ? String(chart.dimension) : '',
+      metric: VALID_CHART_METRICS.has(chart.metric) ? chart.metric : 'count',
+      measureField: chart.measureField ? String(chart.measureField) : '',
+      limit: Number(chart.limit) > 0 ? Number(chart.limit) : 8,
+      sort: VALID_SORT_ORDERS.has(chart.sort) ? chart.sort : 'desc',
+    }))
+}
+
 function validateAction(errors, action, prefix, validTypes) {
   if (!isPlainObject(action)) {
     errors.push(`${prefix} must be an object`)
@@ -279,6 +336,48 @@ function validateAction(errors, action, prefix, validTypes) {
   }
   if (action.type === 'request' && !String(action.url || '').trim()) {
     errors.push(`${prefix}.url is required for request actions`)
+  }
+}
+
+function validateMetric(errors, metric, index, props, numericProps, dateProps) {
+  if (!isPlainObject(metric)) {
+    errors.push(`metrics[${index}] must be an object`)
+    return
+  }
+  if (!VALID_METRIC_TYPES.has(metric.type)) {
+    errors.push(`metrics[${index}].type is invalid`)
+    return
+  }
+  if (metric.type !== 'total' && !props.has(metric.field)) {
+    errors.push(`metrics[${index}].field must reference a field prop`)
+  }
+  if (['sum', 'average', 'min', 'max', 'percent'].includes(metric.type) && !numericProps.has(metric.field)) {
+    errors.push(`metrics[${index}].field must reference a numeric field`)
+  }
+  if (metric.type === 'recent' && !dateProps.has(metric.field)) {
+    errors.push(`metrics[${index}].field must reference a date field`)
+  }
+  if (metric.type === 'percent' && metric.value === undefined) {
+    errors.push(`metrics[${index}].value is required for percent metrics`)
+  }
+}
+
+function validateChart(errors, chart, index, props, numericProps) {
+  if (!isPlainObject(chart)) {
+    errors.push(`charts[${index}] must be an object`)
+    return
+  }
+  if (!VALID_CHART_TYPES.has(chart.type)) {
+    errors.push(`charts[${index}].type is invalid`)
+  }
+  if (chart.type !== 'metric' && !props.has(chart.dimension)) {
+    errors.push(`charts[${index}].dimension must reference a field prop`)
+  }
+  if (!VALID_CHART_METRICS.has(chart.metric || 'count')) {
+    errors.push(`charts[${index}].metric is invalid`)
+  }
+  if ((chart.metric === 'sum' || chart.metric === 'average' || chart.metric === 'min' || chart.metric === 'max') && !numericProps.has(chart.measureField)) {
+    errors.push(`charts[${index}].measureField must reference a numeric field`)
   }
 }
 

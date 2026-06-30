@@ -5,8 +5,9 @@ import contractFixture from '../../fixtures/page-schema-contract.json'
 
 describe('pageSchema normalization', () => {
   it('migrates a v1 document to the current schema version', () => {
-    expect(normalizePageSchema('legacy', { schemaVersion: 1, fields: [] }).schemaVersion).toBe(5)
+    expect(normalizePageSchema('legacy', { schemaVersion: 1, fields: [] }).schemaVersion).toBe(6)
   })
+
   it('fills page defaults and normalizes fields through one entrypoint', () => {
     const schema = normalizePageSchema('orders', {
       title: 'Orders',
@@ -17,7 +18,7 @@ describe('pageSchema normalization', () => {
     })
 
     expect(schema.id).toBe('orders')
-    expect(schema.schemaVersion).toBe(5)
+    expect(schema.schemaVersion).toBe(6)
     expect(schema.pageType).toBe('crud')
     expect(schema.datasource.listUrl).toBe('/api/runtime/pages/orders/records')
     expect(schema.api.listUrl).toBe('/api/runtime/pages/orders/records')
@@ -48,7 +49,7 @@ describe('pageSchema normalization', () => {
       actions: null,
     })
 
-    expect(schema.schemaVersion).toBe(5)
+    expect(schema.schemaVersion).toBe(6)
     expect(schema.datasource.mode).toBe('rest')
     expect(schema.datasource.listUrl).toBe('https://example.com/list')
     expect(schema.datasource.listMethod).toBe('GET')
@@ -56,7 +57,7 @@ describe('pageSchema normalization', () => {
     expect(schema.actions.batchDelete).toBe(true)
   })
 
-  it('normalizes queries and action lists for v5 schemas', () => {
+  it('normalizes queries and action lists for v5+ schemas', () => {
     const schema = normalizePageSchema('users', {
       fields: [{ id: 'field_name', type: 'input', label: 'Name', prop: 'name' }],
       queries: [{ id: 'q1', label: 'Name', fieldProp: 'name', paramKey: 'keyword', operator: 'contains' }],
@@ -93,21 +94,21 @@ describe('pageSchema normalization', () => {
     expect(result.errors).toContain('datasource.mode must be runtime or rest')
   })
 
-  it('rejects duplicate field identities and chart dimensions outside the schema', () => {
+  it('rejects duplicate fields and invalid metric or chart references', () => {
     const result = validatePageSchema({
       schemaVersion: 1,
       fields: [
         { id: 'name', prop: 'name', type: 'input' },
-        { id: 'name', prop: 'name', type: 'select', options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'a' }] },
+        { id: 'name', prop: 'score', type: 'number' },
       ],
-      charts: [{ id: 'missing', type: 'pie', dimension: 'missing' }],
+      metrics: [{ id: 'score_percent', type: 'percent', field: 'name', value: 'A' }],
+      charts: [{ id: 'score_line', type: 'line', dimension: 'name', metric: 'sum', measureField: 'missing' }],
     })
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain('duplicate field id: name')
-    expect(result.errors).toContain('duplicate field prop: name')
-    expect(result.errors).toContain('fields[1].options values must be unique')
-    expect(result.errors).toContain('charts[0].dimension must reference a field prop')
+    expect(result.errors).toContain('metrics[0].field must reference a numeric field')
+    expect(result.errors).toContain('charts[0].measureField must reference a numeric field')
   })
 
   it('accepts the shared frontend/backend contract fixture', () => {

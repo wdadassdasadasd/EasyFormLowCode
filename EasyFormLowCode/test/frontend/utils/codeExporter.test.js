@@ -8,96 +8,24 @@ const schema = {
   title: '用户管理',
   pageType: 'crud',
   fields: [
-    {
-      id: 'field_username',
-      label: '用户名',
-      prop: 'username',
-      type: 'input',
-      required: true,
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-      placeholder: '请输入用户名',
-      maxLength: 50,
-    },
-    {
-      id: 'field_intro',
-      label: '简介',
-      prop: 'intro',
-      type: 'textarea',
-      searchable: false,
-      tableVisible: true,
-      formVisible: true,
-      maxLength: 200,
-    },
-    {
-      id: 'field_age',
-      label: '年龄',
-      prop: 'age',
-      type: 'number',
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-      min: 0,
-      max: 120,
-    },
-    {
-      id: 'field_role',
-      label: '角色',
-      prop: 'role',
-      type: 'select',
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-      options: [
-        { label: '管理员', value: 'admin' },
-        { label: '访客', value: 'guest' },
-      ],
-    },
-    {
-      id: 'field_created_at',
-      label: '创建日期',
-      prop: 'createdAt',
-      type: 'date',
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-    },
-    {
-      id: 'field_enabled',
-      label: '启用',
-      prop: 'enabled',
-      type: 'switch',
-      searchable: false,
-      tableVisible: true,
-      formVisible: true,
-    },
-    {
-      id: 'field_gender',
-      label: '性别',
-      prop: 'gender',
-      type: 'radio',
-      searchable: true,
-      tableVisible: true,
-      formVisible: true,
-      options: [
-        { label: '男', value: 'male' },
-        { label: '女', value: 'female' },
-      ],
-    },
-    {
-      id: 'field_hidden',
-      label: '隐藏字段',
-      prop: 'hidden',
-      type: 'input',
-      searchable: false,
-      tableVisible: false,
-      formVisible: false,
-    },
+    { id: 'field_username', label: '用户名', prop: 'username', type: 'input', required: true, searchable: true, tableVisible: true, formVisible: true, placeholder: '请输入用户名', maxLength: 50 },
+    { id: 'field_email', label: '邮箱', prop: 'email', type: 'email', searchable: true, tableVisible: true, formVisible: true },
+    { id: 'field_rate', label: '评分', prop: 'rate', type: 'rate', searchable: false, tableVisible: true, formVisible: true },
+    { id: 'field_slider', label: '积分', prop: 'score', type: 'slider', searchable: true, tableVisible: true, formVisible: true, min: 0, max: 100 },
+    { id: 'field_role', label: '角色', prop: 'role', type: 'select', searchable: true, tableVisible: true, formVisible: true, options: [{ label: '管理员', value: 'admin' }, { label: '访客', value: 'guest' }] },
+    { id: 'field_created_at', label: '创建日期', prop: 'createdAt', type: 'datetime', searchable: true, tableVisible: true, formVisible: true },
+    { id: 'field_enabled', label: '启用', prop: 'enabled', type: 'switch', searchable: false, tableVisible: true, formVisible: true },
+    { id: 'field_tags', label: '标签', prop: 'tags', type: 'tag', searchable: false, tableVisible: true, formVisible: true, options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }] },
+    { id: 'field_hidden', label: '隐藏字段', prop: 'hidden', type: 'input', searchable: false, tableVisible: false, formVisible: false },
+  ],
+  metrics: [
+    { id: 'total', title: '总数', type: 'total', tone: 'blue' },
+    { id: 'avgScore', title: '平均积分', type: 'average', field: 'score', precision: 1, tone: 'teal' },
   ],
   charts: [
     { id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'role', metric: 'count' },
-    { id: 'roleBar', type: 'bar', title: '角色分布', dimension: 'role', metric: 'count' },
+    { id: 'roleLine', type: 'line', title: '积分趋势', dimension: 'createdAt', metric: 'sum', measureField: 'score', sort: 'asc' },
+    { id: 'scoreRank', type: 'rankBar', title: '积分排行', dimension: 'role', metric: 'average', measureField: 'score' },
   ],
 }
 
@@ -106,7 +34,7 @@ describe('codeExporter', () => {
     const result = buildSchemaJson(schema)
 
     expect(result).toContain('"title": "用户管理"')
-    expect(JSON.parse(result).fields).toHaveLength(8)
+    expect(JSON.parse(result).fields).toHaveLength(9)
   })
 
   it('exports template json without page instance fields and can import it back', () => {
@@ -131,7 +59,7 @@ describe('codeExporter', () => {
     expect(imported.rowActions[0].label).toBe('归档')
   })
 
-  it('exports a Vue SFC from all visible field types and charts', () => {
+  it('exports a Vue SFC from visible field types and charts', () => {
     const result = buildVueSfc(schema)
 
     expect(result).toContain('<template>')
@@ -140,13 +68,13 @@ describe('codeExporter', () => {
     expect(result).toContain('chart-grid')
     expect(result).toContain('vue-echarts')
     expect(result).toContain('v-model="dialogForm.username"')
-    expect(result).toContain('type="textarea"')
-    expect(result).toContain('<el-input-number v-model="searchModel.age"')
+    expect(result).toContain('<el-rate v-model="dialogForm.rate"')
+    expect(result).toContain('<el-slider v-model="dialogForm.score"')
     expect(result).toContain('<el-select v-model="dialogForm.role"')
     expect(result).toContain('<el-date-picker v-model="dialogForm.createdAt"')
     expect(result).toContain('<el-switch v-model="dialogForm.enabled"')
-    expect(result).toContain('<el-radio-group v-model="dialogForm.gender"')
-    expect(result).toContain('formatOptionValue(row.role')
+    expect(result).toContain('rankBar')
+    expect(result).toContain('buildChartOption')
     expect(result).toContain('VITE_API_BASE_URL')
     expect(result).toContain('runtimeError')
     expect(result).toContain('pagination.total')

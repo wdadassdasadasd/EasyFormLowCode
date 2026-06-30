@@ -3,14 +3,14 @@
     <div class="chart-panel__header">
       <div>
         <strong>{{ chartData.title }}</strong>
-        <span>{{ chartData.metric === 'count' ? '按数量统计' : chartData.metric }}</span>
+        <span>{{ headerText }}</span>
       </div>
       <el-tag size="small" effect="plain">{{ chartData.type }}</el-tag>
     </div>
 
     <div v-if="chartData.type === 'metric'" class="metric-chart">
-      <span>{{ chartData.value }}</span>
-      <small>当前记录</small>
+      <span>{{ metricDisplay }}</span>
+      <small>当前统计结果</small>
     </div>
 
     <el-empty v-else-if="chartData.empty" description="暂无可统计数据" :image-size="64" />
@@ -20,7 +20,7 @@
 </template>
 
 <script setup>
-import { BarChart, PieChart } from 'echarts/charts'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -28,9 +28,9 @@ import { ElEmpty, ElTag } from 'element-plus'
 import { computed } from 'vue'
 import VChart from 'vue-echarts'
 
-import { aggregateChart } from '../utils/chartAggregator'
+import { aggregateChart, formatMetricValue } from '../utils/chartAggregator'
 
-use([CanvasRenderer, PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent])
+use([CanvasRenderer, PieChart, BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent])
 
 const props = defineProps({
   aggregate: {
@@ -52,20 +52,58 @@ const props = defineProps({
 })
 
 const chartData = computed(() => props.aggregate || aggregateChart(props.chart, props.records, props.fields))
+const headerText = computed(() => {
+  if (chartData.value.metric === 'count') {
+    return '按记录数统计'
+  }
+  if (chartData.value.measureField) {
+    return `${chartData.value.metric} / ${chartData.value.measureField}`
+  }
+  return chartData.value.metric || chartData.value.type
+})
+const metricDisplay = computed(() => formatMetricValue(chartData.value.value ?? 0, { precision: 0 }))
 const chartOption = computed(() => {
-  if (chartData.value.type === 'bar') {
+  if (chartData.value.type === 'bar' || chartData.value.type === 'rankBar') {
+    const horizontal = chartData.value.type === 'rankBar'
     return {
       color: ['#2563eb'],
       tooltip: { trigger: 'axis' },
-      grid: { left: 8, right: 8, top: 20, bottom: 8, containLabel: true },
+      grid: { left: 12, right: 12, top: 24, bottom: 12, containLabel: true },
+      xAxis: horizontal ? { type: 'value', minInterval: 1 } : { type: 'category', data: chartData.value.labels, axisTick: { show: false } },
+      yAxis: horizontal ? { type: 'category', data: chartData.value.labels, axisTick: { show: false } } : { type: 'value', minInterval: 1 },
+      series: [
+        {
+          type: 'bar',
+          data: chartData.value.values,
+          barWidth: 22,
+          itemStyle: { borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] },
+        },
+      ],
+    }
+  }
+
+  if (chartData.value.type === 'line' || chartData.value.type === 'area') {
+    return {
+      color: ['#0891b2'],
+      tooltip: { trigger: 'axis' },
+      grid: { left: 12, right: 12, top: 24, bottom: 12, containLabel: true },
       xAxis: { type: 'category', data: chartData.value.labels, axisTick: { show: false } },
       yAxis: { type: 'value', minInterval: 1 },
-      series: [{ type: 'bar', data: chartData.value.values, barWidth: 24, itemStyle: { borderRadius: [4, 4, 0, 0] } }],
+      series: [
+        {
+          type: 'line',
+          data: chartData.value.values,
+          smooth: true,
+          areaStyle: chartData.value.type === 'area' ? { opacity: 0.18 } : undefined,
+          lineStyle: { width: 3 },
+          symbolSize: 8,
+        },
+      ],
     }
   }
 
   return {
-    color: ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'],
+    color: ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#0f766e', '#7c3aed'],
     tooltip: { trigger: 'item' },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10 },
     series: [

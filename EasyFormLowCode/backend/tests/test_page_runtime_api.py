@@ -1,6 +1,7 @@
 import sys
 import uuid
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Page, PageRecord, PageVersion  # noqa: E402,F401
+from app.services.analytics_service import count_recent_records  # noqa: E402
 
 
 CONTRACT_FIXTURE = json.loads(
@@ -82,7 +84,7 @@ def test_save_schema_creates_versions_and_restore(client):
     )
     assert response.status_code == 200
     assert response.json()["schema_json"]["title"] == "用户管理"
-    assert response.json()["schema_json"]["schemaVersion"] == 5
+    assert response.json()["schema_json"]["schemaVersion"] == 6
 
     response = client.put(
         "/api/pages/demo_page/schema",
@@ -422,7 +424,7 @@ def test_schema_contract_default_and_normalize_endpoints(client):
     assert default_response.status_code == 200
     default_schema = default_response.json()["schema_json"]
     assert default_schema["id"] == "orders"
-    assert default_schema["schemaVersion"] == 5
+    assert default_schema["schemaVersion"] == 6
     assert default_schema["datasource"]["listUrl"] == "/api/runtime/pages/orders/records"
 
     normalize_response = client.post(
@@ -440,8 +442,34 @@ def test_schema_contract_default_and_normalize_endpoints(client):
     assert normalize_response.status_code == 200
     normalized_schema = normalize_response.json()["schema_json"]
     assert normalized_schema["id"] == "orders"
-    assert normalized_schema["schemaVersion"] == 5
+    assert normalized_schema["schemaVersion"] == 6
     assert normalized_schema["api"] == normalized_schema["datasource"]
+
+
+def test_schema_contract_normalize_defaults_invalid_numeric_analytics_settings(client):
+    normalize_response = client.post(
+        "/api/schema-contract/page-schema/normalize",
+        json={
+            "page_id": "analytics_defaults",
+            "schema_json": {
+                "schemaVersion": 6,
+                "title": "Analytics Defaults",
+                "fields": [],
+                "metrics": [
+                    {"id": "recent", "type": "recent", "recentDays": "invalid", "precision": "invalid"},
+                ],
+                "charts": [
+                    {"id": "statusPie", "type": "pie", "limit": "invalid"},
+                ],
+            },
+        },
+    )
+
+    assert normalize_response.status_code == 200
+    normalized_schema = normalize_response.json()["schema_json"]
+    assert normalized_schema["metrics"][0]["recentDays"] == 30
+    assert normalized_schema["metrics"][0]["precision"] == 0
+    assert normalized_schema["charts"][0]["limit"] == 8
 
 
 def test_schema_contract_validate_endpoint_reports_stable_errors(client):
@@ -452,7 +480,7 @@ def test_schema_contract_validate_endpoint_reports_stable_errors(client):
     assert valid.status_code == 200
     assert valid.json()["valid"] is True
     assert valid.json()["errors"] == []
-    assert valid.json()["schema_json"]["schemaVersion"] == 5
+    assert valid.json()["schema_json"]["schemaVersion"] == 6
 
     invalid = client.post(
         "/api/schema-contract/page-schema/validate",
@@ -478,3 +506,14 @@ def test_project_and_page_names_reject_blank_strings(client):
     )
     assert blank_page.status_code == 422
     assert blank_page.json()["detail"] == "page name is required"
+
+
+def test_count_recent_records_ignores_future_dates():
+    rows = [
+        {"createdAt": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()},
+        {"createdAt": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()},
+        {"createdAt": (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()},
+        {"createdAt": "not-a-date"},
+    ]
+
+    assert count_recent_records(rows, "createdAt", 30) == 1

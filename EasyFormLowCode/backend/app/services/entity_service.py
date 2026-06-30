@@ -600,7 +600,7 @@ def build_entity_page_schema(db: Session, entity: Entity, template_key: str) -> 
             }
         page_fields.append(page_field)
     schema = {
-        "schemaVersion": 5,
+        "schemaVersion": 6,
         "id": entity.entity_key,
         "title": entity.name,
         "pageType": "crud",

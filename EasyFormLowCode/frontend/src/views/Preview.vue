@@ -121,7 +121,7 @@
     <section class="metrics-grid">
       <div v-for="metric in metricCards" :key="metric.id" class="metric-card" :class="metric.tone">
         <span>{{ metric.title }}</span>
-        <strong>{{ metric.value }}</strong>
+        <strong>{{ metric.displayValue || metric.value }}</strong>
         <small>{{ metric.trend }}</small>
       </div>
     </section>

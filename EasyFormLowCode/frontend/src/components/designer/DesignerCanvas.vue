@@ -218,7 +218,7 @@
         @click.stop="emit('select-metric', metric.id)"
       >
         <span>{{ metric.title }}</span>
-        <strong>{{ metric.value }}</strong>
+        <strong>{{ metric.displayValue || metric.value }}</strong>
         <small>{{ metric.trend }}</small>
       </div>
     </section>

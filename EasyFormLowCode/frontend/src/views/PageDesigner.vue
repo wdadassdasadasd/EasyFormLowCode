@@ -189,12 +189,20 @@ import {
   ArrowDown,
   Calendar,
   CircleCheck,
+  Clock,
   DataAnalysis,
   Document,
   EditPen,
   Grid,
   Histogram,
+  Link,
+  Lock,
+  Message,
+  Operation,
+  Phone,
+  PriceTag,
   Search,
+  Star,
   SwitchButton,
   Tickets,
 } from '@element-plus/icons-vue'
@@ -327,16 +335,27 @@ const iconMap = {
   Tickets,
   ArrowDown,
   Calendar,
+  Clock,
   SwitchButton,
   CircleCheck,
   DataAnalysis,
   Histogram,
+  Lock,
+  Message,
+  Phone,
+  Link,
+  Operation,
+  Star,
+  PriceTag,
 }
 
 const analyticsMaterials = [
-  { type: 'metric', label: '统计卡片', description: '显示总数或条件统计', icon: 'DataAnalysis' },
+  { type: 'metric', label: '统计卡片', description: '显示总数、比例和汇总指标', icon: 'DataAnalysis' },
   { type: 'pie', label: '饼图', description: '按分类字段展示占比', icon: 'Histogram' },
   { type: 'bar', label: '柱状图', description: '按分类字段比较数量', icon: 'Histogram' },
+  { type: 'line', label: '折线图', description: '适合趋势变化', icon: 'Histogram' },
+  { type: 'area', label: '面积图', description: '适合累计趋势', icon: 'Histogram' },
+  { type: 'rankBar', label: '排行图', description: '适合榜单和 Top N', icon: 'Histogram' },
 ]
 
 const pageModules = [
@@ -646,6 +665,10 @@ function addMetric() {
     title: '新统计卡片',
     type: 'total',
     tone: 'blue',
+    prefix: '',
+    suffix: '',
+    precision: 0,
+    recentDays: 30,
   }]
   selectMetric(id)
   markSchemaDirty()
@@ -801,6 +824,7 @@ function removeOption(index) {
 
 function addChart(chartType = 'pie') {
   const field = pageSchema.fields[0]
+  const numericField = pageSchema.fields.find((item) => ['number', 'slider', 'rate'].includes(item.type))
   const nextCharts = [...normalizedCharts.value]
   const id = `chart_${Date.now()}`
   nextCharts.push({
@@ -808,7 +832,10 @@ function addChart(chartType = 'pie') {
     type: chartType,
     title: '新图表',
     dimension: field?.prop || '',
-    metric: 'count',
+    metric: ['line', 'area'].includes(chartType) && numericField ? 'sum' : 'count',
+    measureField: numericField?.prop || '',
+    limit: 8,
+    sort: ['line', 'area'].includes(chartType) ? 'asc' : 'desc',
   })
   pageSchema.charts = nextCharts.map(({ aggregate, ...chart }) => chart)
   selectChart(id)

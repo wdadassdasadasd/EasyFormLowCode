@@ -31,7 +31,7 @@ describe('usePageSchema', () => {
       schema_json: { schemaVersion: 1, title: 'Orders', fields: [] },
     })
     apiMocks.normalizePageSchemaContract.mockResolvedValue({
-      schema_json: { schemaVersion: 5, id: 'orders', title: 'Orders', fields: [] },
+      schema_json: { schemaVersion: 6, id: 'orders', title: 'Orders', fields: [] },
     })
 
     const schema = usePageSchema({ pageId: 'orders' })
@@ -43,7 +43,7 @@ describe('usePageSchema', () => {
       title: 'Orders',
       fields: [],
     })
-    expect(schema.pageSchema.schemaVersion).toBe(5)
+    expect(schema.pageSchema.schemaVersion).toBe(6)
     expect(schema.pageSchema.id).toBe('orders')
     expect(schema.schemaOffline.value).toBe(false)
   })
@@ -51,7 +51,7 @@ describe('usePageSchema', () => {
   it('falls back to the backend default schema when page loading fails', async () => {
     apiMocks.getPage.mockRejectedValue(new Error('offline'))
     apiMocks.getDefaultPageSchema.mockResolvedValue({
-      schema_json: { schemaVersion: 5, id: 'orders', title: 'Fallback', fields: [] },
+      schema_json: { schemaVersion: 6, id: 'orders', title: 'Fallback', fields: [] },
     })
 
     const schema = usePageSchema({ pageId: 'orders' })

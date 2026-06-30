@@ -31,17 +31,20 @@
 
 <script setup>
 import {
-  ElDatePicker,
   ElCascader,
   ElCheckbox,
   ElCheckboxGroup,
+  ElDatePicker,
   ElInput,
   ElInputNumber,
   ElOption,
   ElRadio,
   ElRadioGroup,
+  ElRate,
   ElSelect,
+  ElSlider,
   ElSwitch,
+  ElTimePicker,
 } from 'element-plus'
 import { computed } from 'vue'
 
@@ -70,17 +73,18 @@ const componentMap = {
   ElInputNumber,
   ElSelect,
   ElDatePicker,
+  ElTimePicker,
   ElSwitch,
   ElRadioGroup,
   ElCheckboxGroup,
   ElCascader,
+  ElRate,
+  ElSlider,
 }
 
 const normalizedField = computed(() => normalizeField(props.field))
 const fieldConfig = computed(() => getFieldTypeConfig(normalizedField.value.type))
-const controlConfig = computed(() => {
-  return props.mode === 'search' ? fieldConfig.value.searchControl : fieldConfig.value.formControl
-})
+const controlConfig = computed(() => (props.mode === 'search' ? fieldConfig.value.searchControl : fieldConfig.value.formControl))
 const resolvedComponent = computed(() => componentMap[controlConfig.value.component] || ElInput)
 const normalizedOptions = computed(() => normalizeOptions(normalizedField.value.relationOptions?.length ? normalizedField.value.relationOptions : normalizedField.value.options))
 const isOptionSelect = computed(() => controlConfig.value.component === 'ElSelect')
@@ -103,7 +107,7 @@ const controlProps = computed(() => {
     ...controlConfig.value.props,
   }
 
-  if (field.type === 'input' || field.type === 'textarea') {
+  if (['input', 'textarea', 'password', 'email', 'phone', 'url'].includes(field.type)) {
     baseProps.maxlength = field.maxLength || undefined
   }
 
@@ -114,14 +118,40 @@ const controlProps = computed(() => {
   if (field.type === 'number') {
     baseProps.min = field.min === '' ? undefined : field.min
     baseProps.max = field.max === '' ? undefined : field.max
+    baseProps.step = field.step === '' ? undefined : field.step
   }
 
-  if (field.type === 'date') {
-    baseProps.type = field.dateType || 'date'
+  if (field.type === 'slider') {
+    baseProps.min = field.min === '' ? undefined : field.min
+    baseProps.max = field.max === '' ? undefined : field.max
+    baseProps.step = field.step === '' ? undefined : field.step
+    baseProps.showStops = Boolean(field.showStops)
+    baseProps.range = Boolean(field.range)
+  }
+
+  if (field.type === 'rate') {
+    baseProps.allowHalf = Boolean(field.allowHalf)
+    baseProps.showScore = field.showScore !== false
+  }
+
+  if (field.type === 'date' || field.type === 'datetime') {
+    baseProps.type = field.dateType || controlConfig.value.props?.type || 'date'
+    baseProps.valueFormat = controlConfig.value.props?.valueFormat || field.valueFormat
+  }
+
+  if (field.type === 'time') {
+    baseProps.format = field.timeFormat || 'HH:mm:ss'
+    baseProps.valueFormat = field.timeFormat || 'HH:mm:ss'
   }
 
   if (field.type === 'select') {
     baseProps.multiple = Boolean(field.multiple)
+  }
+
+  if (field.type === 'tag') {
+    baseProps.multiple = true
+    baseProps.collapseTags = true
+    baseProps.collapseTagsTooltip = true
   }
 
   if (field.type === 'cascader') {
@@ -129,8 +159,8 @@ const controlProps = computed(() => {
   }
 
   if (field.type === 'switch' && props.mode === 'form') {
-    baseProps.activeText = field.activeText || '是'
-    baseProps.inactiveText = field.inactiveText || '否'
+    baseProps.activeText = field.activeText || '开启'
+    baseProps.inactiveText = field.inactiveText || '关闭'
   }
 
   return baseProps

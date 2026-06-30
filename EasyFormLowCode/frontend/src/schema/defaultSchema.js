@@ -1,6 +1,6 @@
 import { createFieldByType } from './fieldTypes'
 
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export const DEFAULT_PAGE_ACTIONS = {
   search: true,
@@ -41,7 +41,7 @@ export function createDefaultPageSchema(pageId = 'user_manage') {
   return {
     schemaVersion: SCHEMA_VERSION,
     id: pageId,
-    title: '鐢ㄦ埛绠＄悊',
+    title: '用户管理',
     pageType: 'crud',
     datasource,
     api: { ...datasource },
@@ -49,42 +49,49 @@ export function createDefaultPageSchema(pageId = 'user_manage') {
     fields: [
       createFieldByType('input', {
         id: 'field_username',
-        label: '鐢ㄦ埛鍚?',
+        label: '用户名',
         prop: 'username',
-        placeholder: '璇疯緭鍏ョ敤鎴峰悕',
+        placeholder: '请输入用户名',
         required: true,
       }),
       createFieldByType('input', {
         id: 'field_nickname',
-        label: '鏄电О',
+        label: '昵称',
         prop: 'nickname',
-        placeholder: '璇疯緭鍏ユ樀绉?',
+        placeholder: '请输入昵称',
       }),
       createFieldByType('select', {
         id: 'field_role',
-        label: '鐢ㄦ埛瑙掕壊',
+        label: '角色',
         prop: 'role',
-        placeholder: '璇烽€夋嫨瑙掕壊',
+        placeholder: '请选择角色',
         options: [
-          { label: '绠＄悊鍛?', value: 'admin' },
-          { label: '鏅€氱敤鎴?', value: 'user' },
-          { label: '璁垮', value: 'guest' },
+          { label: '管理员', value: 'admin' },
+          { label: '普通用户', value: 'user' },
+          { label: '访客', value: 'guest' },
         ],
       }),
       createFieldByType('select', {
         id: 'field_status',
-        label: '鐘舵€?',
+        label: '状态',
         prop: 'status',
-        placeholder: '璇烽€夋嫨鐘舵€?',
+        placeholder: '请选择状态',
         options: [
-          { label: '鍚敤', value: 'enabled' },
-          { label: '鍋滅敤', value: 'disabled' },
+          { label: '启用', value: 'enabled' },
+          { label: '停用', value: 'disabled' },
         ],
       }),
-      createFieldByType('date', {
+      createFieldByType('datetime', {
         id: 'field_created_at',
-        label: '鍒涘缓鏃堕棿',
+        label: '创建时间',
         prop: 'createdAt',
+        searchable: false,
+        formVisible: false,
+      }),
+      createFieldByType('number', {
+        id: 'field_score',
+        label: '积分',
+        prop: 'score',
         searchable: false,
       }),
     ],
@@ -94,18 +101,20 @@ export function createDefaultPageSchema(pageId = 'user_manage') {
       actions: ['edit', 'delete'],
     },
     formDialog: {
-      title: '缂栬緫鏁版嵁',
+      title: '编辑数据',
       width: '600px',
     },
     charts: [
-      { id: 'recordMetric', type: 'metric', title: '璁板綍鎬绘暟', metric: 'count' },
-      { id: 'statusPie', type: 'pie', title: '鐘舵€佸垎甯?', dimension: 'status', metric: 'count' },
-      { id: 'roleBar', type: 'bar', title: '瑙掕壊鍒嗗竷', dimension: 'role', metric: 'count' },
+      { id: 'recordMetric', type: 'metric', title: '记录总数', metric: 'count' },
+      { id: 'statusPie', type: 'pie', title: '状态分布', dimension: 'status', metric: 'count', limit: 8, sort: 'desc' },
+      { id: 'roleBar', type: 'bar', title: '角色分布', dimension: 'role', metric: 'count', limit: 8, sort: 'desc' },
+      { id: 'scoreLine', type: 'line', title: '积分趋势', dimension: 'createdAt', metric: 'sum', measureField: 'score', limit: 12, sort: 'asc' },
     ],
     metrics: [
-      { id: 'total', title: '璁板綍鎬绘暟', type: 'total', tone: 'blue' },
-      { id: 'enabled', title: '鍚敤璁板綍', type: 'match', field: 'status', value: 'enabled', tone: 'green' },
-      { id: 'recent', title: '杩?30 澶╂柊澧?', type: 'recent', field: 'createdAt', tone: 'orange' },
+      { id: 'total', title: '记录总数', type: 'total', tone: 'blue', prefix: '', suffix: '' },
+      { id: 'enabled', title: '启用记录', type: 'match', field: 'status', value: 'enabled', tone: 'green' },
+      { id: 'recent', title: '近 30 天新增', type: 'recent', field: 'createdAt', recentDays: 30, tone: 'orange' },
+      { id: 'scoreAvg', title: '平均积分', type: 'average', field: 'score', precision: 1, tone: 'teal' },
     ],
     queries: [],
     rowActions: [],
@@ -117,9 +126,9 @@ export function createDefaultPageSchema(pageId = 'user_manage') {
 
 export function buildDemoRows() {
   return [
-    { id: 1, username: 'admin', nickname: '绯荤粺绠＄悊鍛?', role: 'admin', status: 'enabled', createdAt: '2026-05-01' },
-    { id: 2, username: 'zhangsan', nickname: '寮犱笁', role: 'user', status: 'enabled', createdAt: '2026-05-03' },
-    { id: 3, username: 'lisi', nickname: '鏉庡洓', role: 'user', status: 'disabled', createdAt: '2026-05-08' },
-    { id: 4, username: 'wangwu', nickname: '鐜嬩簲', role: 'guest', status: 'enabled', createdAt: '2026-05-12' },
+    { id: 1, username: 'admin', nickname: '系统管理员', role: 'admin', status: 'enabled', createdAt: '2026-06-01 09:00:00', score: 90 },
+    { id: 2, username: 'zhangsan', nickname: '张三', role: 'user', status: 'enabled', createdAt: '2026-06-05 11:10:00', score: 76 },
+    { id: 3, username: 'lisi', nickname: '李四', role: 'user', status: 'disabled', createdAt: '2026-06-08 15:20:00', score: 58 },
+    { id: 4, username: 'wangwu', nickname: '王五', role: 'guest', status: 'enabled', createdAt: '2026-06-12 18:30:00', score: 32 },
   ]
 }

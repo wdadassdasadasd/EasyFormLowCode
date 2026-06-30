@@ -18,12 +18,29 @@
           <el-select :model-value="selectedMetric.type" @change="updateMetric(selectedMetricIndex, 'type', $event)">
             <el-option label="记录总数" value="total" />
             <el-option label="字段值计数" value="match" />
-            <el-option label="近 30 天" value="recent" />
+            <el-option label="近 N 天" value="recent" />
+            <el-option label="求和" value="sum" />
+            <el-option label="平均值" value="average" />
+            <el-option label="最小值" value="min" />
+            <el-option label="最大值" value="max" />
+            <el-option label="百分比" value="percent" />
           </el-select>
           <el-select v-if="selectedMetric.type !== 'total'" :model-value="selectedMetric.field" clearable @change="updateMetric(selectedMetricIndex, 'field', $event)">
             <el-option v-for="field in pageSchema.fields" :key="field.id" :label="field.label" :value="field.prop" />
           </el-select>
           <el-input v-if="selectedMetric.type === 'match'" :model-value="selectedMetric.value" placeholder="匹配值" @input="updateMetric(selectedMetricIndex, 'value', $event)" />
+          <el-input v-if="selectedMetric.type === 'percent'" :model-value="selectedMetric.value" placeholder="目标值" @input="updateMetric(selectedMetricIndex, 'value', $event)" />
+          <el-input-number v-if="selectedMetric.type === 'recent'" :model-value="selectedMetric.recentDays || 30" :min="1" controls-position="right" @change="updateMetric(selectedMetricIndex, 'recentDays', $event)" />
+          <el-input :model-value="selectedMetric.prefix" placeholder="前缀，如 ￥" @input="updateMetric(selectedMetricIndex, 'prefix', $event)" />
+          <el-input :model-value="selectedMetric.suffix" placeholder="后缀，如 %" @input="updateMetric(selectedMetricIndex, 'suffix', $event)" />
+          <el-input-number :model-value="selectedMetric.precision || 0" :min="0" :max="6" controls-position="right" @change="updateMetric(selectedMetricIndex, 'precision', $event)" />
+          <el-select :model-value="selectedMetric.tone || 'blue'" @change="updateMetric(selectedMetricIndex, 'tone', $event)">
+            <el-option label="蓝色" value="blue" />
+            <el-option label="绿色" value="green" />
+            <el-option label="橙色" value="orange" />
+            <el-option label="青色" value="teal" />
+            <el-option label="红色" value="red" />
+          </el-select>
           <el-button text type="danger" @click="emit('remove-metric', selectedMetricIndex)">删除</el-button>
         </div>
       </div>
@@ -298,9 +315,27 @@
             <el-option label="metric" value="metric" />
             <el-option label="pie" value="pie" />
             <el-option label="bar" value="bar" />
+            <el-option label="line" value="line" />
+            <el-option label="area" value="area" />
+            <el-option label="rankBar" value="rankBar" />
           </el-select>
-          <el-select :model-value="selectedChart.dimension" clearable @change="updateChart(selectedChartIndex, 'dimension', $event)">
+          <el-select v-if="selectedChart.type !== 'metric'" :model-value="selectedChart.dimension" clearable @change="updateChart(selectedChartIndex, 'dimension', $event)">
             <el-option v-for="field in pageSchema.fields" :key="field.id" :label="field.label" :value="field.prop" />
+          </el-select>
+          <el-select :model-value="selectedChart.metric || 'count'" @change="updateChart(selectedChartIndex, 'metric', $event)">
+            <el-option label="count" value="count" />
+            <el-option label="sum" value="sum" />
+            <el-option label="average" value="average" />
+            <el-option label="min" value="min" />
+            <el-option label="max" value="max" />
+          </el-select>
+          <el-select v-if="selectedChart.metric !== 'count'" :model-value="selectedChart.measureField" clearable @change="updateChart(selectedChartIndex, 'measureField', $event)">
+            <el-option v-for="field in numericFields" :key="field.id" :label="field.label" :value="field.prop" />
+          </el-select>
+          <el-input-number :model-value="selectedChart.limit || 8" :min="1" :max="50" controls-position="right" @change="updateChart(selectedChartIndex, 'limit', $event)" />
+          <el-select :model-value="selectedChart.sort || 'desc'" @change="updateChart(selectedChartIndex, 'sort', $event)">
+            <el-option label="desc" value="desc" />
+            <el-option label="asc" value="asc" />
           </el-select>
           <el-button text type="danger" @click="emit('remove-chart', selectedChartIndex)">删除</el-button>
         </div>
@@ -405,6 +440,7 @@ const selectedMetricIndex = computed(() => (props.pageSchema.metrics || []).find
 const selectedMetric = computed(() => (selectedMetricIndex.value >= 0 ? props.pageSchema.metrics[selectedMetricIndex.value] : null))
 const selectedChartIndex = computed(() => (props.pageSchema.charts || []).findIndex((chart) => chart.id === props.selectedChartId))
 const selectedChart = computed(() => (selectedChartIndex.value >= 0 ? props.pageSchema.charts[selectedChartIndex.value] : null))
+const numericFields = computed(() => (props.pageSchema.fields || []).filter((field) => ['number', 'slider', 'rate'].includes(field.type)))
 
 const actionCapabilityMap = {
   create: 'create',
@@ -550,10 +586,17 @@ function updateChart(index, key, value) {
       return chart
     }
 
-    return {
+    const nextChart = {
       ...chart,
       [key]: value,
     }
+    if (key === 'type' && value === 'metric') {
+      nextChart.dimension = ''
+    }
+    if (key === 'metric' && value === 'count') {
+      nextChart.measureField = ''
+    }
+    return nextChart
   })
 
   emit('patch-page', { charts: nextCharts })
@@ -562,7 +605,14 @@ function updateChart(index, key, value) {
 function updateMetric(index, key, value) {
   if (index < 0) return
   const nextMetrics = (props.pageSchema.metrics || []).map((metric, metricIndex) => {
-    return metricIndex === index ? { ...metric, [key]: value } : metric
+    if (metricIndex !== index) {
+      return metric
+    }
+    const nextMetric = { ...metric, [key]: value }
+    if (key === 'type' && value === 'total') {
+      nextMetric.field = ''
+    }
+    return nextMetric
   })
   emit('patch-page', { metrics: nextMetrics })
 }
