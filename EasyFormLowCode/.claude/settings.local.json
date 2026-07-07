@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Get-ChildItem *)",
-      "WebSearch",
-      "Skill(deep-research)"
-    ]
-  }
-}

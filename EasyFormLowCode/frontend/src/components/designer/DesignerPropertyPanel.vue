@@ -5,6 +5,13 @@
         <strong>属性配置</strong>
         <span>{{ selectedField ? selectedField.label : selectedAreaLabel }}</span>
       </div>
+      <el-button v-if="showCollapseToggle" text circle title="收起属性配置" :icon="Back" @click="emit('toggle-collapse')" />
+    </div>
+
+    <div class="property-summary">
+      <span>{{ selectedAreaLabel }}</span>
+      <span>{{ selectedField ? selectedField.type : `${pageSchema.fields?.length || 0} 个字段` }}</span>
+      <span>{{ pageSchema.datasource?.mode || 'runtime' }}</span>
     </div>
 
     <section v-if="selectedArea === 'metrics'" class="property-section">
@@ -66,7 +73,7 @@
       </el-form>
     </section>
 
-    <section v-if="pageSchema.datasource?.mode === 'rest'" class="property-section">
+    <section v-if="pageSchema.datasource?.mode === 'rest'" class="property-section advanced-section">
       <div class="section-title">REST 数据源</div>
       <div class="readonly-note">配置列表、写入地址与响应字段映射；REST 默认只读模式，开启写操作后才会在运行态出现新增、编辑和删除。</div>
       <el-form label-position="top">
@@ -99,7 +106,7 @@
       </el-form>
     </section>
 
-    <section class="property-section">
+    <section class="property-section advanced-section">
       <div class="section-title">查询项配置</div>
       <div class="query-list">
         <div v-for="(query, index) in pageSchema.queries || []" :key="query.id" class="action-card">
@@ -122,7 +129,7 @@
       <el-button plain size="small" class="add-query-button" :icon="Plus" @click="addQuery">添加查询项</el-button>
     </section>
 
-    <section class="property-section">
+    <section class="property-section advanced-section">
       <div class="section-title">行内动作</div>
       <div class="query-list">
         <div v-for="(action, index) in pageSchema.rowActions || []" :key="action.id" class="action-card">
@@ -159,7 +166,7 @@
       </div>
     </section>
 
-    <section class="property-section">
+    <section class="property-section advanced-section">
       <div class="section-title">批量动作</div>
       <div class="query-list">
         <div v-for="(action, index) in pageSchema.batchActions || []" :key="action.id" class="action-card">
@@ -195,6 +202,20 @@
     </section>
 
     <template v-if="selectedField">
+      <section class="property-section quick-field-section">
+        <div class="section-title">字段上下文</div>
+        <div class="quick-field-grid">
+          <span>显示名</span>
+          <strong>{{ selectedField.label }}</strong>
+          <span>字段标识</span>
+          <strong>{{ selectedField.prop }}</strong>
+          <span>控件类型</span>
+          <strong>{{ selectedField.type }}</strong>
+          <span>展示位置</span>
+          <strong>{{ selectedAreaLabel }}</strong>
+        </div>
+      </section>
+
       <section v-for="group in setterGroups" :key="group.key" class="property-section">
         <div class="section-title">{{ group.label }}</div>
         <el-form label-position="top">
@@ -202,7 +223,7 @@
             <template v-if="setter.setter === 'input' && setter.prop !== 'defaultValue'">
               <el-input
                 :model-value="selectedField[setter.prop]"
-                @input="patchField({ [setter.prop]: $event }, setter.structural)"
+                @input="patchFieldDraft({ [setter.prop]: $event }, setter.structural)"
                 @change="handleSetterCommit(setter)"
               />
               <div v-if="setter.prop === 'prop' && fieldPropFeedback" class="field-feedback">{{ fieldPropFeedback }}</div>
@@ -211,7 +232,8 @@
             <el-input
               v-else-if="setter.setter === 'input' && setter.prop === 'defaultValue' && !usesOptionDefaultValue"
               :model-value="selectedField.defaultValue"
-              @input="patchField({ defaultValue: $event })"
+              @input="patchFieldDraft({ defaultValue: $event })"
+              @change="handleSetterCommit(setter)"
             />
 
             <el-select
@@ -351,7 +373,7 @@
 </template>
 
 <script setup>
-import { Delete, Plus, Rank } from '@element-plus/icons-vue'
+import { Back, Delete, Plus, Rank } from '@element-plus/icons-vue'
 import { ElButton, ElEmpty, ElForm, ElFormItem, ElIcon, ElInput, ElInputNumber, ElOption, ElSelect, ElSwitch } from 'element-plus'
 import { computed } from 'vue'
 import Draggable from 'vuedraggable'
@@ -397,6 +419,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  showCollapseToggle: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits([
@@ -404,6 +430,7 @@ const emit = defineEmits([
   'add-metric',
   'add-option',
   'change-field-type',
+  'commit-field-patch',
   'delete-selected-field',
   'field-sort',
   'move-field',
@@ -415,6 +442,7 @@ const emit = defineEmits([
   'select-chart',
   'select-field',
   'select-metric',
+  'toggle-collapse',
   'normalize-field-prop',
 ])
 
@@ -457,10 +485,20 @@ function patchField(patch, structural = false) {
   emit('patch-field', props.selectedField.id, patch, structural)
 }
 
+function patchFieldDraft(patch, structural = false) {
+  if (!props.selectedField) {
+    return
+  }
+
+  emit('patch-field', props.selectedField.id, patch, structural, { commit: false })
+}
+
 function handleSetterCommit(setter) {
   if (setter.prop === 'prop') {
     emit('normalize-field-prop')
+    return
   }
+  emit('commit-field-patch', `field-${setter.prop}`)
 }
 
 function updateDatasource(key, value) {
@@ -628,9 +666,17 @@ function updateMetric(index, key, value) {
 }
 
 .property-header,
+.property-summary,
 .property-section {
-  padding: 14px;
+  padding: 12px;
   border-bottom: 1px solid #eef2f7;
+}
+
+.property-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .property-header strong,
@@ -650,7 +696,27 @@ function updateMetric(index, key, value) {
 }
 
 .section-title {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.property-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  background: #f8fafc;
+}
+
+.property-summary span {
+  overflow: hidden;
+  padding: 5px 7px;
+  color: #475569;
+  font-size: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
 }
 
 .analytics-picker {
@@ -662,6 +728,10 @@ function updateMetric(index, key, value) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 10px;
+}
+
+.advanced-section {
+  background: #fcfdff;
 }
 
 .readonly-note,
@@ -676,7 +746,7 @@ function updateMetric(index, key, value) {
 .chart-setter,
 .query-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .option-row,
@@ -687,9 +757,32 @@ function updateMetric(index, key, value) {
 }
 
 .action-card {
-  padding: 10px;
+  padding: 9px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
+}
+
+.quick-field-section {
+  background: #f8fbff;
+}
+
+.quick-field-grid {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 6px 8px;
+  font-size: 12px;
+}
+
+.quick-field-grid span {
+  color: #6b7280;
+}
+
+.quick-field-grid strong {
+  overflow: hidden;
+  color: #111827;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-card-header,
@@ -758,6 +851,16 @@ function updateMetric(index, key, value) {
 .empty-property {
   padding: 14px;
   color: #6b7280;
+  font-size: 12px;
+}
+
+:deep(.el-form-item) {
+  margin-bottom: 8px;
+}
+
+:deep(.el-form-item__label) {
+  margin-bottom: 4px;
+  color: #4b5563;
   font-size: 12px;
 }
 </style>

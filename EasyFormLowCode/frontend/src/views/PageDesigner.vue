@@ -1,16 +1,12 @@
 <template>
-  <div class="designer">
-    <div v-if="isCompactLayout" class="designer-compact-toolbar">
-      <el-button plain size="small" @click="showMaterialPanel = !showMaterialPanel">
-        {{ showMaterialPanel ? '收起组件库' : '展开组件库' }}
-      </el-button>
-      <el-button plain size="small" @click="showPropertyPanel = !showPropertyPanel">
-        {{ showPropertyPanel ? '收起属性面板' : '展开属性面板' }}
-      </el-button>
+  <div class="designer" :class="{ 'designer-stacked': isStackedLayout }" :style="designerGridStyle">
+    <div class="designer-panel-toolbar">
+      <el-button plain size="small" :icon="Grid" title="切换组件库" @click="toggleMaterialPanel" />
+      <el-button plain size="small" :icon="Operation" title="切换属性配置" @click="togglePropertyPanel" />
     </div>
 
     <template v-if="isCompactLayout">
-      <el-drawer :model-value="showMaterialPanel" direction="ltr" size="320px" @update:model-value="showMaterialPanel = $event">
+      <el-drawer :model-value="showMaterialPanel" direction="ltr" size="304px" @update:model-value="setMaterialPanelVisible($event)">
         <DesignerMaterialPanel
           :icon-map="iconMap"
           :analytics-materials="analyticsMaterials"
@@ -18,27 +14,31 @@
           :material-groups="materialGroups"
           :page-modules="pageModules"
           :selected-area="selectedArea"
+          :show-collapse-toggle="true"
           @add-field="addField"
           @add-analytics="addAnalytics"
           @material-drag-end="handleMaterialDragEnd"
           @material-drag-start="handleMaterialDragStart"
           @select-area="handleAreaSelect"
+          @toggle-collapse="setMaterialPanelVisible(false)"
         />
       </el-drawer>
     </template>
     <DesignerMaterialPanel
-      v-else
+      v-else-if="showMaterialPanel"
       :icon-map="iconMap"
       :analytics-materials="analyticsMaterials"
       :material-drag-group="materialDragGroup"
       :material-groups="materialGroups"
       :page-modules="pageModules"
       :selected-area="selectedArea"
+      :show-collapse-toggle="true"
       @add-field="addField"
       @add-analytics="addAnalytics"
       @material-drag-end="handleMaterialDragEnd"
       @material-drag-start="handleMaterialDragStart"
       @select-area="handleAreaSelect"
+      @toggle-collapse="toggleMaterialPanel"
     />
 
     <DesignerCanvas
@@ -48,8 +48,6 @@
       :form-fields="formFields"
       :is-dragging-material="isDraggingMaterial"
       :is-offline="isOffline"
-      :last-request="lastRequest"
-      :request-history="requestHistory"
       :metric-cards="metricCards"
       :normalized-charts="normalizedCharts"
       :page-actions="effectivePageActions"
@@ -93,7 +91,7 @@
     />
 
     <template v-if="isCompactLayout">
-      <el-drawer :model-value="showPropertyPanel" size="360px" @update:model-value="showPropertyPanel = $event">
+      <el-drawer :model-value="showPropertyPanel" size="320px" @update:model-value="setPropertyPanelVisible($event)">
         <DesignerPropertyPanel
           :datasource-capabilities="datasourceCapabilities"
           :field-prop-feedback="fieldPropFeedback"
@@ -104,11 +102,13 @@
           :selected-field="selectedField"
           :selected-metric-id="selectedMetricId"
           :setter-groups="setterGroups"
+          :show-collapse-toggle="true"
           :uses-option-default-value="usesOptionDefaultValue"
           @add-metric="addMetric"
           @add-chart="addChart"
           @add-option="addOption"
           @change-field-type="handleFieldTypeChange"
+          @commit-field-patch="commitSchemaChange"
           @delete-selected-field="deleteSelectedField"
           @field-sort="handleFieldSort"
           @move-field="moveField"
@@ -121,11 +121,12 @@
           @select-chart="selectChart"
           @select-field="selectField"
           @select-metric="selectMetric"
+          @toggle-collapse="setPropertyPanelVisible(false)"
         />
       </el-drawer>
     </template>
     <DesignerPropertyPanel
-      v-else
+      v-else-if="showPropertyPanel"
       :datasource-capabilities="datasourceCapabilities"
       :field-prop-feedback="fieldPropFeedback"
       :material-field-types="materialFieldTypes"
@@ -135,11 +136,13 @@
       :selected-field="selectedField"
       :selected-metric-id="selectedMetricId"
       :setter-groups="setterGroups"
+      :show-collapse-toggle="true"
       :uses-option-default-value="usesOptionDefaultValue"
       @add-metric="addMetric"
       @add-chart="addChart"
       @add-option="addOption"
       @change-field-type="handleFieldTypeChange"
+      @commit-field-patch="commitSchemaChange"
       @delete-selected-field="deleteSelectedField"
       @field-sort="handleFieldSort"
       @move-field="moveField"
@@ -152,6 +155,7 @@
       @select-chart="selectChart"
       @select-field="selectField"
       @select-metric="selectMetric"
+      @toggle-collapse="togglePropertyPanel"
     />
 
     <DesignerOverlays
@@ -217,36 +221,27 @@ import DesignerPropertyPanel from '../components/designer/DesignerPropertyPanel.
 import { publishPage, savePageSchema as savePageSchemaRequest, syncEntityPage as syncEntityPageRequest } from '../api/pages'
 import { validatePageSchemaContract } from '../api/schemaContract'
 import { listPageVersions, restorePageVersion } from '../api/versions'
+import { useDesignerSchemaEditor } from '../composables/useDesignerSchemaEditor'
 import { usePageSchema } from '../composables/usePageSchema'
-import { useSchemaHistory } from '../composables/useSchemaHistory'
 import { setLocalPreview } from '../composables/previewSession'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import { buildDemoRows } from '../schema/defaultSchema'
-import { createDroppedField } from '../schema/dropField'
-import {
-  MATERIAL_FIELD_TYPES,
-  getPropertySetters,
-  normalizeField,
-  normalizeOptions,
-} from '../schema/fieldTypes'
+import { MATERIAL_FIELD_TYPES, getPropertySetters, normalizeField, normalizeOptions } from '../schema/fieldTypes'
 import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildTemplateJson, buildVueSfc, downloadTextFile, parseImportedSchema } from '../utils/codeExporter'
 import { applyDatasourceCapabilityToActions, normalizeEditableFieldProp } from '../utils/schemaEditor'
 
 const emit = defineEmits(['editor-status-change'])
+const DESIGNER_MATERIAL_PANEL_KEY = 'lowcode_designer_material_collapsed'
+const DESIGNER_PROPERTY_PANEL_KEY = 'lowcode_designer_property_collapsed'
 const route = useRoute()
 const router = useRouter()
-const selectedFieldId = ref('')
-const selectedArea = ref('search')
-const selectedMetricId = ref('')
-const selectedChartId = ref('')
-const fieldPropFeedback = ref('')
 const isDraggingMaterial = ref(false)
 const isCompactLayout = ref(false)
-const showMaterialPanel = ref(true)
+const showMaterialPanel = ref(false)
 const showPropertyPanel = ref(true)
 const statusText = ref('正在加载页面配置...')
 const editorStatus = ref('loading')
@@ -258,14 +253,13 @@ const bypassUnsavedConfirm = ref(false)
 const pageId = computed(() => String(route.query.pageId || DEFAULT_PAGE_ID))
 const runtimeMode = 'draft'
 let syncSchemaModels = () => {}
-const schemaHistory = useSchemaHistory()
+let syncDesignerSelection = () => {}
 
 const { pageSchema, pageStatus, replaceSchema, loadSchema: loadPageSchema, toPlainSchema } = usePageSchema({
   pageId,
   syncModels: () => syncSchemaModels(),
   afterReplace: (schema) => {
-    selectedFieldId.value = schema.fields[0]?.id || ''
-    syncAnalyticsSelection(schema)
+    syncDesignerSelection(schema)
   },
 })
 const { searchModel, dialogForm, formErrors, searchableFields, tableFields, formFields, syncModels } = useSchemaModels(pageSchema)
@@ -282,8 +276,6 @@ const {
   statsCharts,
   runtimeError,
   isOffline,
-  lastRequest,
-  requestHistory,
   readonlyRuntime,
   datasourceCapabilities,
   pagination,
@@ -311,6 +303,53 @@ const {
   formErrors,
   fallbackRows: buildDemoRows,
 })
+
+const {
+  fieldPropFeedback,
+  selectedArea,
+  selectedChartId,
+  selectedField,
+  selectedFieldId,
+  selectedMetricId,
+  addChart: editorAddChart,
+  addField: editorAddField,
+  addMetric: editorAddMetric,
+  addOption: editorAddOption,
+  applyFieldPatch: editorApplyFieldPatch,
+  applyPagePatch: editorApplyPagePatch,
+  commitSchemaChange,
+  handleDropChange: editorHandleDropChange,
+  handleAreaSelect: editorHandleAreaSelect,
+  handleFieldSort: editorHandleFieldSort,
+  handleFieldTypeChange: editorHandleFieldTypeChange,
+  markSchemaDirty: editorMarkSchemaDirty,
+  moveField: editorMoveField,
+  normalizeSelectedFieldProp: editorNormalizeSelectedFieldProp,
+  redoSchema: editorRedoSchema,
+  removeChart: editorRemoveChart,
+  removeMetric: editorRemoveMetric,
+  removeOption: editorRemoveOption,
+  removeSelectedField,
+  replaceAndResetHistory,
+  resetHistory,
+  selectChart: editorSelectChart,
+  selectField: editorSelectField,
+  selectMetric: editorSelectMetric,
+  syncSelectionAfterSchema,
+  undoSchema: editorUndoSchema,
+} = useDesignerSchemaEditor({
+  pageId,
+  pageSchema,
+  replaceSchema,
+  toPlainSchema,
+  syncModels,
+  setEditorStatus,
+  syncAnalyticsSelection,
+  openPropertyPanel,
+  isCompactLayout,
+  getNormalizedCharts: () => normalizedCharts.value,
+})
+syncDesignerSelection = syncSelectionAfterSchema
 
 const materialFieldTypes = MATERIAL_FIELD_TYPES
 const dropTargets = reactive({
@@ -389,7 +428,6 @@ const materialGroups = computed(() => {
   }, [])
 })
 
-const selectedField = computed(() => pageSchema.fields.find((field) => field.id === selectedFieldId.value))
 const selectedFieldSetters = computed(() => (selectedField.value ? getPropertySetters(selectedField.value) : []))
 const setterGroups = computed(() => {
   return setterGroupMeta
@@ -423,6 +461,17 @@ const editorStatusType = computed(() => {
 })
 const metricCards = computed(() => (statsMetrics.value.length ? statsMetrics.value : buildMetricCards(statsRows.value, pageSchema.fields, pageSchema.metrics)))
 const normalizedCharts = computed(() => buildChartViewModels(pageSchema, statsCharts.value))
+const isStackedLayout = computed(() => isCompactLayout.value)
+const designerGridStyle = computed(() => {
+  if (isCompactLayout.value) {
+    return { gridTemplateColumns: 'minmax(0, 1fr)' }
+  }
+  const columns = []
+  if (showMaterialPanel.value) columns.push('240px')
+  columns.push('minmax(0, 1fr)')
+  if (showPropertyPanel.value) columns.push('312px')
+  return { gridTemplateColumns: columns.join(' ') }
+})
 
 function buildChartViewModels(schema, aggregates = []) {
   const configured = schema.charts?.length ? schema.charts : buildDefaultCharts(schema.fields)
@@ -485,6 +534,7 @@ watch(pageId, async () => {
 })
 
 onMounted(async () => {
+  restorePanelPreferences()
   syncCompactLayout()
   await refreshDesigner()
   window.addEventListener('beforeunload', handleBeforeUnload)
@@ -513,7 +563,7 @@ async function refreshDesigner() {
 
 async function loadSchema() {
   const result = await loadPageSchema()
-  schemaHistory.reset(toPlainSchema())
+  resetHistory(toPlainSchema(), 'load-schema')
   setEditorStatus(result?.status === 'published' ? 'published' : result ? 'saved' : 'dirty')
   statusText.value = result ? '已从后端恢复页面配置' : '后端不可用，当前使用前端演示配置'
 }
@@ -564,7 +614,8 @@ async function syncEntityPage() {
   try {
     const result = await syncEntityPageRequest(pageId.value)
     replaceSchema(result.schema_json)
-    setEditorStatus('dirty')
+    syncSelectionAfterSchema(pageSchema)
+    markSchemaDirty('sync-entity-page')
     statusText.value = '已同步实体新增字段，请保存并发布'
     ElMessage.success('实体字段已同步到页面')
   } catch (error) {
@@ -573,12 +624,7 @@ async function syncEntityPage() {
 }
 
 function addField(type, area = 'table') {
-  const field = createDroppedField(type, area, pageSchema.fields)
-  pageSchema.fields.push(field)
-  selectedFieldId.value = field.id
-  selectedArea.value = area
-  syncModels()
-  markSchemaDirty()
+  return editorAddField(type, area)
 }
 
 function handleMaterialDragStart() {
@@ -591,14 +637,8 @@ function handleMaterialDragEnd() {
 }
 
 function handleDropChange(area, event) {
-  const dropped = event?.added?.element
-
-  if (!dropped) {
-    return
-  }
-
-  addField(dropped.type, area)
-  clearDropTargets()
+  const field = editorHandleDropChange(area, event)
+  if (field) clearDropTargets()
 }
 
 function clearDropTargets() {
@@ -619,46 +659,63 @@ function updatePagination(patch) {
   Object.assign(pagination, patch)
 }
 
-function selectField(fieldId) {
-  selectedFieldId.value = fieldId
-  if (isCompactLayout.value) {
-    showPropertyPanel.value = true
-  }
+function persistPanelPreferences() {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(DESIGNER_MATERIAL_PANEL_KEY, showMaterialPanel.value ? '1' : '0')
+  window.localStorage.setItem(DESIGNER_PROPERTY_PANEL_KEY, showPropertyPanel.value ? '1' : '0')
+}
+
+function setMaterialPanelVisible(value) {
+  showMaterialPanel.value = value
+  persistPanelPreferences()
+}
+
+function setPropertyPanelVisible(value) {
+  showPropertyPanel.value = value
+  persistPanelPreferences()
+}
+
+function openMaterialPanel() {
+  showMaterialPanel.value = true
+  persistPanelPreferences()
+}
+
+function openPropertyPanel() {
+  showPropertyPanel.value = true
+  persistPanelPreferences()
+}
+
+function toggleMaterialPanel() {
+  showMaterialPanel.value = !showMaterialPanel.value
+  persistPanelPreferences()
+}
+
+function togglePropertyPanel() {
+  showPropertyPanel.value = !showPropertyPanel.value
+  persistPanelPreferences()
+}
+
+function selectField(selection) {
+  editorSelectField(selection)
 }
 
 function selectMetric(metricId) {
-  selectedArea.value = 'metrics'
-  selectedMetricId.value = metricId
-  selectedFieldId.value = ''
-  if (isCompactLayout.value) {
-    showPropertyPanel.value = true
-  }
+  editorSelectMetric(metricId)
 }
 
 function selectChart(chartId) {
-  selectedArea.value = 'charts'
-  selectedChartId.value = chartId
-  selectedFieldId.value = ''
-  if (isCompactLayout.value) {
-    showPropertyPanel.value = true
-  }
+  editorSelectChart(chartId)
 }
 
 function handleAreaSelect(area) {
-  selectedArea.value = area
-  selectedFieldId.value = ''
-  if (area === 'metrics') {
-    selectedMetricId.value = pageSchema.metrics?.[0]?.id || ''
-  }
-  if (area === 'charts') {
-    selectedChartId.value = pageSchema.charts?.[0]?.id || ''
-  }
+  editorHandleAreaSelect(area)
   if (isCompactLayout.value && ['search', 'table', 'form'].includes(area)) {
-    showMaterialPanel.value = true
+    openMaterialPanel()
   }
 }
 
 function addMetric() {
+  return editorAddMetric()
   const id = `metric_${Date.now()}`
   pageSchema.metrics = [...(pageSchema.metrics || []), {
     id,
@@ -689,42 +746,15 @@ function handleAnalyticsDrop(area, event) {
 }
 
 function removeMetric(index) {
-  const removedId = pageSchema.metrics[index]?.id
-  pageSchema.metrics.splice(index, 1)
-  if (selectedMetricId.value === removedId) {
-    selectedMetricId.value = pageSchema.metrics[Math.max(index - 1, 0)]?.id || pageSchema.metrics[0]?.id || ''
-  }
-  markSchemaDirty()
+  editorRemoveMetric(index)
 }
 
 function applyPagePatch(patch) {
-  const normalized = normalizePageSchema(pageId.value, { ...toPlainSchema(), ...patch })
-  Object.assign(pageSchema, normalized)
-  markSchemaDirty()
+  editorApplyPagePatch(patch)
 }
 
-function applyFieldPatch(fieldId, patch, structural = false) {
-  const field = pageSchema.fields.find((item) => item.id === fieldId)
-  if (!field) {
-    return
-  }
-
-  const nextPatch = { ...patch }
-  if ('prop' in nextPatch) {
-    const fallback = `${field.type}_${pageSchema.fields.indexOf(field) + 1}`
-    const normalizedProp = normalizeEditableFieldProp(nextPatch.prop, field.id, pageSchema.fields, fallback)
-    nextPatch.prop = normalizedProp.value
-    fieldPropFeedback.value = normalizedProp.message
-  }
-
-  Object.assign(field, nextPatch)
-  if (Array.isArray(field.options)) {
-    field.options = normalizeOptions(field.options)
-  }
-  if (structural) {
-    syncModels()
-  }
-  markSchemaDirty()
+function applyFieldPatch(fieldId, patch, structural = false, options = {}) {
+  editorApplyFieldPatch(fieldId, patch, structural, options)
 }
 
 async function deleteSelectedField() {
@@ -733,73 +763,28 @@ async function deleteSelectedField() {
   }
 
   await ElMessageBox.confirm(`确认删除字段“${selectedField.value.label}”吗？`, '删除字段', { type: 'warning' })
-  const index = pageSchema.fields.findIndex((field) => field.id === selectedField.value.id)
-  pageSchema.fields.splice(index, 1)
-  selectedFieldId.value = pageSchema.fields[Math.max(index - 1, 0)]?.id || ''
-  syncModels()
-  markSchemaDirty()
+  removeSelectedField()
   ElMessage.success('字段已删除')
 }
 
 function moveField(index, offset) {
-  const nextIndex = index + offset
-  if (nextIndex < 0 || nextIndex >= pageSchema.fields.length) {
-    return
-  }
-
-  const [field] = pageSchema.fields.splice(index, 1)
-  pageSchema.fields.splice(nextIndex, 0, field)
-  selectedFieldId.value = field.id
-  markSchemaDirty()
+  editorMoveField(index, offset)
 }
 
 function handleFieldSort() {
-  syncModels()
-  markSchemaDirty()
+  editorHandleFieldSort()
 }
 
 function handleFieldTypeChange(nextType) {
-  if (!selectedField.value) {
-    return
-  }
-
-  const current = selectedField.value
-  const normalized = normalizeField(
-    {
-      id: current.id,
-      label: current.label,
-      prop: current.prop,
-      type: nextType,
-      required: current.required,
-      searchable: current.searchable,
-      tableVisible: current.tableVisible,
-      formVisible: current.formVisible,
-    },
-    pageSchema.fields.indexOf(current) + 1,
-    pageSchema.fields,
-  )
-  Object.keys(current).forEach((key) => {
-    delete current[key]
-  })
-  Object.assign(current, normalized)
-  syncModels()
-  markSchemaDirty()
+  editorHandleFieldTypeChange(nextType)
 }
 
 function normalizeSelectedFieldProp() {
-  if (!selectedField.value) {
-    return
-  }
-
-  const fallback = `${selectedField.value.type}_${pageSchema.fields.indexOf(selectedField.value) + 1}`
-  const normalizedProp = normalizeEditableFieldProp(selectedField.value.prop, selectedField.value.id, pageSchema.fields, fallback)
-  selectedField.value.prop = normalizedProp.value
-  fieldPropFeedback.value = normalizedProp.message
-  syncModels()
-  markSchemaDirty()
+  editorNormalizeSelectedFieldProp()
 }
 
 function addOption() {
+  return editorAddOption()
   if (!selectedField.value) {
     return
   }
@@ -813,6 +798,7 @@ function addOption() {
 }
 
 function removeOption(index) {
+  return editorRemoveOption(index)
   if (!selectedField.value) {
     return
   }
@@ -823,6 +809,7 @@ function removeOption(index) {
 }
 
 function addChart(chartType = 'pie') {
+  return editorAddChart(chartType)
   const field = pageSchema.fields[0]
   const numericField = pageSchema.fields.find((item) => ['number', 'slider', 'rate'].includes(item.type))
   const nextCharts = [...normalizedCharts.value]
@@ -843,6 +830,7 @@ function addChart(chartType = 'pie') {
 }
 
 function removeChart(index) {
+  return editorRemoveChart(index)
   const removedId = pageSchema.charts[index]?.id
   pageSchema.charts.splice(index, 1)
   if (selectedChartId.value === removedId) {
@@ -852,22 +840,15 @@ function removeChart(index) {
 }
 
 function markSchemaDirty() {
-  schemaHistory.commit(toPlainSchema())
-  setEditorStatus('dirty')
+  editorMarkSchemaDirty()
 }
 
 function undoSchema() {
-  const snapshot = schemaHistory.undo()
-  if (!snapshot) return
-  replaceSchema(snapshot)
-  setEditorStatus('dirty')
+  editorUndoSchema()
 }
 
 function redoSchema() {
-  const snapshot = schemaHistory.redo()
-  if (!snapshot) return
-  replaceSchema(snapshot)
-  setEditorStatus('dirty')
+  editorRedoSchema()
 }
 
 function handleHistoryShortcut(event) {
@@ -879,11 +860,26 @@ function handleHistoryShortcut(event) {
 }
 
 function syncCompactLayout() {
-  isCompactLayout.value = window.innerWidth <= 1080
+  isCompactLayout.value = window.innerWidth <= 1440
   if (!isCompactLayout.value) {
     showMaterialPanel.value = true
     showPropertyPanel.value = true
+    return
   }
+  if (window.innerWidth <= 1200) {
+    showMaterialPanel.value = false
+    showPropertyPanel.value = false
+    return
+  }
+  showMaterialPanel.value = false
+  showPropertyPanel.value = window.localStorage.getItem(DESIGNER_PROPERTY_PANEL_KEY) !== '0'
+}
+
+function restorePanelPreferences() {
+  if (typeof window === 'undefined') return
+  showMaterialPanel.value = window.localStorage.getItem(DESIGNER_MATERIAL_PANEL_KEY) === '1'
+  const storedProperty = window.localStorage.getItem(DESIGNER_PROPERTY_PANEL_KEY)
+  showPropertyPanel.value = storedProperty === null ? true : storedProperty === '1'
 }
 
 function handleBeforeUnload(event) {
@@ -974,8 +970,7 @@ async function restoreVersion(version) {
 
   try {
     const result = await restorePageVersion(pageId.value, version.id)
-    replaceSchema(result.schema_json)
-    schemaHistory.reset(toPlainSchema())
+    replaceAndResetHistory(result.schema_json, 'restore-version')
     pageStatus.value = result.status
     setEditorStatus('saved')
     statusText.value = `已回滚到版本 ${version.version_no}`
@@ -1002,7 +997,8 @@ async function importSchemaFile(file) {
   try {
     const importedSchema = parseImportedSchema(await readFileText(file), pageId.value)
     replaceSchema(importedSchema)
-    markSchemaDirty()
+    syncSelectionAfterSchema(pageSchema)
+    markSchemaDirty('import-schema')
     ElMessage.success('Schema 已导入到当前草稿')
   } catch (error) {
     ElMessage.error(error?.message || 'Schema 导入失败')
@@ -1024,7 +1020,8 @@ async function importTemplateFile(file) {
       api: preserveRuntimeDatasource ? currentSchema.datasource : (importedTemplate.datasource || currentSchema.datasource),
     })
     replaceSchema(mergedSchema)
-    markSchemaDirty()
+    syncSelectionAfterSchema(pageSchema)
+    markSchemaDirty('import-template')
     ElMessage.success('Template 已应用到当前页面草稿')
   } catch (error) {
     ElMessage.error(error?.message || 'Template 导入失败')
@@ -1065,36 +1062,50 @@ defineExpose({
 <style lang="scss" scoped>
 .designer {
   display: grid;
-  grid-template-columns: 232px minmax(560px, 1fr) 360px;
-  gap: 12px;
+  gap: 8px;
   height: calc(100vh - 88px);
-  min-height: 760px;
+  min-height: 720px;
+  padding: 0;
 }
 
-.designer-compact-toolbar {
-  display: none;
+.designer-panel-toolbar {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.designer-panel-toolbar :deep(.el-button) {
+  margin-left: 0;
+}
+
+@media (min-width: 1441px) {
+  .designer {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 1440px) {
   .designer {
-    grid-template-columns: 220px minmax(0, 1fr) 340px;
-  }
-}
-
-@media (max-width: 1080px) {
-  .designer {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
     min-height: 0;
+    gap: 0;
   }
+}
 
-  .designer-compact-toolbar {
-    display: flex;
-    gap: 8px;
+@media (max-width: 768px) {
+  .designer-panel-toolbar {
+    right: 16px;
+    bottom: 16px;
   }
-
-  .designer > :nth-child(1) { order: 2; }
-  .designer > :nth-child(2) { order: 1; }
-  .designer > :nth-child(3) { order: 3; }
 }
 </style>

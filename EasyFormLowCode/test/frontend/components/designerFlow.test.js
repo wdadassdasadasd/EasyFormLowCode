@@ -240,4 +240,112 @@ describe('designer flow integration', () => {
 
     expect(wrapper.vm.pageSchema.fields).toHaveLength(beforeCount + 1)
   })
+
+  it('emits area and target selection from the redesigned canvas', async () => {
+    const wrapper = mountCanvas({
+      selectedArea: 'table',
+      selectedFieldId: 'name',
+      selectedMetricId: 'metric_total',
+      selectedChartId: 'chart_status',
+    })
+
+    await wrapper.find('.search-card').trigger('click')
+    await wrapper.find('.table-card').trigger('click')
+    await wrapper.find('.form-card').trigger('click')
+    await wrapper.find('.metrics-grid').trigger('click')
+    await wrapper.find('.chart-grid').trigger('click')
+
+    expect(wrapper.emitted('select-area')?.map((event) => event[0])).toEqual(['search', 'table', 'form', 'metrics', 'charts'])
+
+    await wrapper.find('.field-target').trigger('click')
+    await wrapper.find('.column-select-target').trigger('click')
+    await wrapper.find('.metric-card').trigger('click')
+    await wrapper.find('.chart-select-target').trigger('click')
+
+    expect(wrapper.emitted('select-field')?.map((event) => event[0])).toEqual([
+      { fieldId: 'name', area: 'search' },
+      { fieldId: 'name', area: 'table' },
+    ])
+    expect(wrapper.emitted('select-metric')?.[0]).toEqual(['metric_total'])
+    expect(wrapper.emitted('select-chart')?.[0]).toEqual(['chart_status'])
+  })
+
+  it('shows focused drop hints while dragging material over the canvas', () => {
+    const wrapper = mountCanvas({
+      isDraggingMaterial: true,
+      selectedArea: 'search',
+    })
+
+    expect(wrapper.find('.search-card').classes()).toContain('drag-target')
+    expect(wrapper.findAll('.drop-catcher-label').map((item) => item.text())).toEqual([
+      '拖到这里添加查询条件',
+      '拖到这里添加表格列',
+      '拖到这里添加表单项',
+    ])
+  })
 })
+
+function mountCanvas(props = {}) {
+  const field = {
+    id: 'name',
+    label: '姓名',
+    prop: 'name',
+    type: 'input',
+    searchable: true,
+    tableVisible: true,
+    formVisible: true,
+    required: false,
+  }
+  const pageSchema = {
+    id: 'user_page',
+    title: '用户管理',
+    datasource: { mode: 'runtime' },
+    fields: [field],
+  }
+
+  return mount(DesignerCanvas, {
+    props: {
+      dialogForm: { name: '' },
+      dropTargets: { search: [], table: [], form: [] },
+      fieldDropGroup: { name: 'page-fields', pull: false, put: true },
+      formFields: [field],
+      isDraggingMaterial: false,
+      isOffline: false,
+      metricCards: [{ id: 'metric_total', title: '总数', value: 1, trend: '当前记录', tone: 'blue' }],
+      normalizedCharts: [{ id: 'chart_status', title: '状态分布', type: 'pie', aggregate: null }],
+      pageActions: { search: true, reset: true, create: true, edit: true, delete: true, batchDelete: true },
+      pageSchema,
+      pagination: { currentPage: 1, pageSize: 10, total: 1 },
+      recordRows: [{ id: 1, name: 'Alice' }],
+      searchModel: { name: '' },
+      searchableFields: [field],
+      selectedArea: 'table',
+      selectedChartId: '',
+      selectedFieldId: '',
+      selectedMetricId: '',
+      selectedRows: [],
+      statsRows: [{ id: 1, name: 'Alice' }],
+      statusText: '测试状态',
+      tableFields: [field],
+      ...props,
+    },
+    global: {
+      plugins: [ElementPlus],
+      stubs: {
+        Draggable: {
+          props: ['list'],
+          template: '<div><slot name="item" v-for="item in list" :element="item" /><slot name="footer" /></div>',
+        },
+        ChartRenderer: { template: '<div class="chart-renderer-stub" />' },
+        TableFieldColumn: {
+          props: ['field'],
+          template: '<div class="table-field-column"><slot name="header" :field="field" /></div>',
+        },
+        FieldControl: {
+          props: ['modelValue'],
+          template: '<input :value="modelValue" />',
+        },
+      },
+    },
+  })
+}

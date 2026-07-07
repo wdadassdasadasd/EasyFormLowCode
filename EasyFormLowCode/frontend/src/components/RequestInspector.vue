@@ -1,19 +1,19 @@
 <template>
   <section class="request-inspector">
     <div class="request-inspector__header">
-      <strong>璇锋眰瑙傚療闈㈡澘</strong>
-      <span>{{ latestRequest ? `${latestRequest.method} ${latestRequest.status ?? '-'}` : '鏆傛棤璇锋眰' }}</span>
+      <strong>请求观察面板</strong>
+      <span>{{ latestRequest ? `${latestRequest.method} ${latestRequest.status ?? '-'}` : '暂无请求' }}</span>
     </div>
 
-    <el-empty v-if="!latestRequest" description="璇锋眰璁板綍浼氭樉绀哄湪杩欓噷" :image-size="52" />
+    <el-empty v-if="!latestRequest" description="请求记录会显示在这里" :image-size="52" />
 
     <el-table v-else-if="normalizedRequests.length > 1" :data="normalizedRequests" size="small" max-height="260">
-      <el-table-column prop="method" label="鏂规硶" width="76" />
-      <el-table-column label="鐘舵€?" width="68"><template #default="{ row }">{{ row.status ?? '-' }}</template></el-table-column>
-      <el-table-column label="鑰楁椂" width="80"><template #default="{ row }">{{ row.durationMs }} ms</template></el-table-column>
-      <el-table-column prop="url" label="璇锋眰鍦板潃" min-width="220" show-overflow-tooltip />
-      <el-table-column label="澶辫触鍘熷洜" min-width="140" show-overflow-tooltip><template #default="{ row }">{{ row.failureReason || '-' }}</template></el-table-column>
-      <el-table-column label="鍝嶅簲鎽樿" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.responseSummary || 'OK' }}</template></el-table-column>
+      <el-table-column prop="method" label="方法" width="76" />
+      <el-table-column label="状态" width="68"><template #default="{ row }">{{ row.status ?? '-' }}</template></el-table-column>
+      <el-table-column label="耗时" width="80"><template #default="{ row }">{{ row.durationMs }} ms</template></el-table-column>
+      <el-table-column prop="url" label="请求地址" min-width="220" show-overflow-tooltip />
+      <el-table-column label="失败原因" min-width="140" show-overflow-tooltip><template #default="{ row }">{{ row.failureReason || '-' }}</template></el-table-column>
+      <el-table-column label="响应摘要" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.responseSummary || 'OK' }}</template></el-table-column>
     </el-table>
 
     <dl v-else class="request-inspector__body">
@@ -22,11 +22,11 @@
         <dd>{{ latestRequest.url }}</dd>
       </div>
       <div>
-        <dt>璇锋眰绫诲瀷</dt>
+        <dt>请求类型</dt>
         <dd>{{ latestRequest.requestType || '-' }}</dd>
       </div>
       <div>
-        <dt>鑰楁椂</dt>
+        <dt>耗时</dt>
         <dd>{{ latestRequest.durationMs }} ms</dd>
       </div>
       <div>
@@ -38,11 +38,11 @@
         <dd>{{ formatJson(latestRequest.body) }}</dd>
       </div>
       <div>
-        <dt>鍝嶅簲鎽樿</dt>
+        <dt>响应摘要</dt>
         <dd>{{ latestRequest.responseSummary || 'OK' }}</dd>
       </div>
       <div>
-        <dt>鍙搷浣滃け璐ュ師鍥?</dt>
+        <dt>失败原因</dt>
         <dd>{{ latestRequest.failureReason || '-' }}</dd>
       </div>
     </dl>

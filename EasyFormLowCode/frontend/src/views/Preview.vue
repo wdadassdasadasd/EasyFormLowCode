@@ -31,106 +31,117 @@
       :description="runtimeNotice"
     />
 
-    <section v-if="showSearchPanel" class="search-card">
-      <div class="section-title">
-        <strong>搜索表单</strong>
-        <span>{{ searchableFields.length }} 个条件</span>
-      </div>
-      <el-empty v-if="searchableFields.length === 0" description="暂无搜索字段" :image-size="64" />
-      <el-form v-else class="search-form" :model="searchModel" label-position="top">
-        <el-form-item v-for="field in searchableFields" :key="field.id" :label="field.label">
-          <FieldControl v-model="searchModel[field.prop]" :field="field" mode="search" @enter="applySearch" />
-        </el-form-item>
-
-        <div class="search-actions">
-          <el-button v-if="pageActions.reset" @click="resetSearch">重置</el-button>
-          <el-button v-if="pageActions.search" type="primary" :loading="recordsLoading" @click="applySearch">查询</el-button>
+    <div class="runtime-body">
+      <section v-if="showSearchPanel" class="search-card">
+        <div class="section-title">
+          <div>
+            <strong>搜索表单</strong>
+            <span>{{ searchableFields.length }} 个条件</span>
+          </div>
         </div>
-      </el-form>
-    </section>
+        <el-empty v-if="searchableFields.length === 0" description="暂无搜索字段" :image-size="64" />
+        <el-form v-else class="search-form" :model="searchModel" label-position="top">
+          <el-form-item v-for="field in searchableFields" :key="field.id" :label="field.label">
+            <FieldControl v-model="searchModel[field.prop]" :field="field" mode="search" @enter="applySearch" />
+          </el-form-item>
 
-    <section class="table-card">
-      <div class="table-toolbar">
-        <div>
-          <strong>数据表格</strong>
-          <span>共 {{ pagination.total }} 条</span>
-        </div>
-        <div class="toolbar-left">
-          <el-button v-if="pageActions.create" type="primary" :disabled="readonlyRuntime" @click="openCreateDialog">新增</el-button>
-          <el-button v-if="pageActions.edit" :disabled="readonlyRuntime || selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
-          <el-button
-            v-if="pageActions.batchDelete"
-            type="danger"
-            plain
-            :disabled="readonlyRuntime || selectedRows.length === 0"
-            @click="deleteSelectedRows"
-          >
-            删除
-          </el-button>
-          <el-button
-            v-for="action in batchActions"
-            :key="action.id"
-            plain
-            :disabled="selectedRows.length === 0"
-            @click="runBatchAction(action)"
-          >
-            {{ action.label }}
-          </el-button>
-        </div>
-      </div>
+          <div class="search-actions">
+            <el-button v-if="pageActions.reset" @click="resetSearch">重置</el-button>
+            <el-button v-if="pageActions.search" type="primary" :loading="recordsLoading" @click="applySearch">查询</el-button>
+          </div>
+        </el-form>
+      </section>
 
-      <el-table
-        v-loading="recordsLoading"
-        :data="recordRows"
-        border
-        row-key="id"
-        @selection-change="selectedRows = $event"
-      >
-        <el-table-column v-if="pageActions.batchDelete" type="selection" width="44" />
-        <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
-        <el-table-column v-if="showRowActions" label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click="openEditDialog(row)">编辑</el-button>
-            <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click="deleteRecord(row)">删除</el-button>
+      <section class="table-card">
+        <div class="table-toolbar">
+          <div>
+            <strong>数据表格</strong>
+            <span>共 {{ pagination.total }} 条</span>
+          </div>
+          <div class="toolbar-left">
+            <el-button v-if="pageActions.create" type="primary" :disabled="readonlyRuntime" @click="openCreateDialog">新增</el-button>
+            <el-button v-if="pageActions.edit" :disabled="readonlyRuntime || selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
             <el-button
-              v-for="action in rowActions"
+              v-if="pageActions.batchDelete"
+              type="danger"
+              plain
+              :disabled="readonlyRuntime || selectedRows.length === 0"
+              @click="deleteSelectedRows"
+            >
+              删除
+            </el-button>
+            <el-button
+              v-for="action in batchActions"
               :key="action.id"
-              link
-              type="primary"
-              @click="runRowAction(action, row)"
+              plain
+              :disabled="selectedRows.length === 0"
+              @click="runBatchAction(action)"
             >
               {{ action.label }}
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </div>
 
-      <div class="pagination-row">
-        <span>{{ pageSchema.datasource?.mode === 'rest' ? '按数据源返回结果展示' : '按后端分页参数查询' }}</span>
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          background
-          layout="prev, pager, next, sizes"
-          :page-sizes="[5, 10, 20, 50]"
-          :total="pagination.total"
+        <el-table
+          v-loading="recordsLoading"
+          :data="recordRows"
+          border
+          row-key="id"
+          @selection-change="selectedRows = $event"
+        >
+          <el-table-column v-if="pageActions.batchDelete" type="selection" width="44" />
+          <TableFieldColumn v-for="field in tableFields" :key="field.id" :field="field" />
+          <el-table-column v-if="showRowActions" label="操作" width="220" fixed="right">
+            <template #default="{ row }">
+              <el-button v-if="pageActions.edit" link type="primary" :disabled="readonlyRuntime" @click="openEditDialog(row)">编辑</el-button>
+              <el-button v-if="pageActions.delete" link type="danger" :disabled="readonlyRuntime" @click="deleteRecord(row)">删除</el-button>
+              <el-button
+                v-for="action in rowActions"
+                :key="action.id"
+                link
+                type="primary"
+                @click="runRowAction(action, row)"
+              >
+                {{ action.label }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination-row">
+          <span>{{ pageSchema.datasource?.mode === 'rest' ? '按数据源返回结果展示' : '按后端分页参数查询' }}</span>
+          <el-pagination
+            v-model:current-page="pagination.currentPage"
+            v-model:page-size="pagination.pageSize"
+            background
+            layout="prev, pager, next, sizes"
+            :page-sizes="[5, 10, 20, 50]"
+            :total="pagination.total"
+          />
+        </div>
+      </section>
+
+      <section class="metrics-grid">
+        <div v-for="metric in metricCards" :key="metric.id" class="metric-card" :class="metric.tone">
+          <span>{{ metric.title }}</span>
+          <strong>{{ metric.displayValue || metric.value }}</strong>
+          <small>{{ metric.trend }}</small>
+        </div>
+      </section>
+
+      <section class="chart-grid">
+        <ChartRenderer
+          v-for="chart in normalizedCharts"
+          :key="chart.id"
+          :chart="chart"
+          :aggregate="chart.aggregate"
+          :records="statsRows"
+          :fields="pageSchema.fields"
         />
-      </div>
-    </section>
+      </section>
 
-    <section class="metrics-grid">
-      <div v-for="metric in metricCards" :key="metric.id" class="metric-card" :class="metric.tone">
-        <span>{{ metric.title }}</span>
-        <strong>{{ metric.displayValue || metric.value }}</strong>
-        <small>{{ metric.trend }}</small>
-      </div>
-    </section>
-
-    <section class="chart-grid">
-      <ChartRenderer v-for="chart in normalizedCharts" :key="chart.id" :chart="chart" :aggregate="chart.aggregate" :records="statsRows" :fields="pageSchema.fields" />
-    </section>
-
-    <RequestInspector :request="lastRequest" :requests="requestHistory" />
+      <RequestInspector :request="lastRequest" :requests="requestHistory" />
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px">
       <el-empty v-if="formFields.length === 0" description="暂无表单字段" :image-size="70" />
@@ -158,12 +169,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import RequestInspector from '../components/RequestInspector.vue'
 import { usePageSchema } from '../composables/usePageSchema'
 import { getLocalPreview } from '../composables/previewSession'
 import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
+import RequestInspector from '../components/RequestInspector.vue'
 import ChartRenderer from '../renderer/ChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
@@ -310,10 +321,10 @@ function buildChartViewModels(schema, aggregates = []) {
   display: grid;
   gap: 14px;
   min-height: calc(100vh - 88px);
-  padding: 18px;
+  padding: 16px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .runtime-header,
@@ -328,6 +339,11 @@ function buildChartViewModels(schema, aggregates = []) {
 
 .runtime-alert {
   margin-bottom: 0;
+}
+
+.runtime-body {
+  display: grid;
+  gap: 14px;
 }
 
 .runtime-header span {
@@ -364,11 +380,11 @@ function buildChartViewModels(schema, aggregates = []) {
 .search-card,
 .table-card {
   border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .search-card {
-  padding: 14px;
+  padding: 12px;
   background: #f9fafb;
 }
 
@@ -383,6 +399,7 @@ function buildChartViewModels(schema, aggregates = []) {
 .search-actions,
 .toolbar-left {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
 }
@@ -409,6 +426,7 @@ function buildChartViewModels(schema, aggregates = []) {
 
 .pagination-row {
   align-items: center;
+  flex-wrap: wrap;
   padding: 12px;
 }
 
@@ -427,7 +445,7 @@ function buildChartViewModels(schema, aggregates = []) {
 }
 
 .metric-card {
-  padding: 14px;
+  padding: 12px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
@@ -476,6 +494,49 @@ function buildChartViewModels(schema, aggregates = []) {
   .search-form,
   .chart-grid {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .runtime-header,
+  .table-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .runtime-status {
+    justify-items: start;
+  }
+
+  .toolbar-left,
+  .search-actions {
+    justify-content: flex-start;
+  }
+
+  .table-card {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .runtime-page {
+    padding: 12px;
+  }
+
+  .search-form,
+  .metrics-grid,
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-actions :deep(.el-button),
+  .toolbar-left :deep(.el-button) {
+    margin-left: 0;
   }
 }
 </style>

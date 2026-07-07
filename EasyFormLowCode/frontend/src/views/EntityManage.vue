@@ -11,11 +11,28 @@
 
     <el-alert v-if="errorMessage" type="warning" :title="errorMessage" show-icon :closable="false" />
 
+    <section class="overview-panel">
+      <div class="overview-item">
+        <span>实体数量</span>
+        <strong>{{ entities.length }}</strong>
+      </div>
+      <div class="overview-item">
+        <span>当前实体</span>
+        <strong>{{ selectedEntity?.name || '-' }}</strong>
+      </div>
+      <div class="overview-item">
+        <span>字段数量</span>
+        <strong>{{ selectedFieldCount }}</strong>
+      </div>
+    </section>
+
     <div class="entity-layout">
       <section class="panel entity-list">
         <div class="panel-title">
-          <strong>实体</strong>
-          <span>{{ entities.length }}</span>
+          <div>
+            <strong>实体</strong>
+            <span>{{ entities.length }} 个实体</span>
+          </div>
         </div>
 
         <el-empty v-if="!loading && !entities.length" description="还没有数据实体" :image-size="64" />
@@ -50,7 +67,7 @@
             </div>
           </div>
 
-          <el-table :data="selectedEntity.fields" empty-text="尚未定义字段">
+          <el-table :data="selectedEntity.fields" empty-text="尚未定义字段" border>
             <el-table-column prop="label" label="字段名称" min-width="150" />
             <el-table-column prop="field_key" label="字段标识" min-width="140" />
             <el-table-column prop="field_type" label="类型" width="110" />
@@ -209,6 +226,7 @@ const fieldTypes = [
 
 const projectId = computed(() => Number(route.query.projectId) || catalog.activeProjectId.value)
 const selectableTargets = computed(() => entities.value.filter((entity) => entity.id !== selectedEntityId.value))
+const selectedFieldCount = computed(() => selectedEntity.value?.fields?.length || 0)
 
 onMounted(loadEntities)
 watch(projectId, loadEntities)
@@ -441,7 +459,7 @@ async function generatePage() {
 }
 
 .page-header {
-  padding: 12px 4px;
+  padding: 4px 2px;
 }
 
 .page-header span,
@@ -458,10 +476,43 @@ async function generatePage() {
   margin: 6px 0;
 }
 
+.page-header h1 {
+  font-size: 24px;
+}
+
 .page-header p,
 .detail-header p {
   margin: 0;
   color: #6b7280;
+}
+
+.overview-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-item {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.overview-item span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.overview-item strong {
+  overflow: hidden;
+  font-size: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entity-layout {
@@ -472,11 +523,10 @@ async function generatePage() {
 
 .panel {
   min-width: 0;
-  padding: 20px;
-  background: #fff;
-  border: 1px solid #f0f0f0;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 2%);
 }
 
 .entity-list {
@@ -499,9 +549,9 @@ async function generatePage() {
 
 .entity-item:hover,
 .entity-item.active {
-  color: #0958d9;
-  background: #e6f4ff;
-  border-color: #91caff;
+  color: #1d4ed8;
+  background: #eef4ff;
+  border-color: #bfdbfe;
 }
 
 .entity-item small {
@@ -545,8 +595,13 @@ async function generatePage() {
     flex-direction: column;
   }
 
+  .overview-panel,
   .entity-layout {
     grid-template-columns: 1fr;
+  }
+
+  .entity-detail {
+    overflow-x: auto;
   }
 }
 </style>

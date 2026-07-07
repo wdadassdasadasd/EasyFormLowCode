@@ -2,11 +2,31 @@
   <aside class="material-panel">
     <section class="panel-section">
       <div class="panel-heading">
-        <span>组件库</span>
-        <small>点击添加</small>
+        <div>
+          <span>组件库</span>
+          <small>{{ areaHint }}</small>
+        </div>
+        <el-button v-if="showCollapseToggle" text circle title="收起组件库" :icon="Back" @click="emit('toggle-collapse')" />
       </div>
 
-      <div v-if="isFieldArea" v-for="group in materialGroups" :key="group.name" class="material-group">
+      <el-input v-model="keyword" class="material-search" clearable size="small" placeholder="搜索组件" />
+
+      <div class="module-strip">
+        <button
+          v-for="module in pageModules"
+          :key="module.key"
+          class="module-pill"
+          type="button"
+          :class="{ active: selectedArea === module.key }"
+          @click="emit('select-area', module.key)"
+        >
+          <el-icon><component :is="module.icon" /></el-icon>
+          <span>{{ module.label }}</span>
+        </button>
+      </div>
+
+      <template v-if="isFieldArea">
+        <div v-for="group in filteredMaterialGroups" :key="group.name" class="material-group">
         <div class="group-title">{{ group.name }}</div>
         <Draggable
           :list="group.items"
@@ -31,9 +51,11 @@
           </template>
         </Draggable>
       </div>
+        <div v-if="filteredMaterialGroups.length === 0" class="material-empty">没有匹配的字段组件</div>
+      </template>
       <div v-else class="analytics-material-grid">
         <button
-          v-for="material in analyticsMaterials"
+          v-for="material in filteredAnalyticsMaterials"
           :key="material.type"
           class="analytics-material-card"
           type="button"
@@ -46,32 +68,16 @@
           <span>{{ material.label }}</span>
           <small>{{ material.description }}</small>
         </button>
+        <div v-if="filteredAnalyticsMaterials.length === 0" class="material-empty">没有匹配的数据分析组件</div>
       </div>
-    </section>
-
-    <section class="panel-section">
-      <div class="panel-heading">
-        <span>页面模块</span>
-        <small>Schema 驱动</small>
-      </div>
-      <button
-        v-for="module in pageModules"
-        :key="module.key"
-        class="module-card"
-        type="button"
-        :class="{ active: selectedArea === module.key }"
-        @click="emit('select-area', module.key)"
-      >
-        <el-icon><component :is="module.icon" /></el-icon>
-        <span>{{ module.label }}</span>
-      </button>
     </section>
   </aside>
 </template>
 
 <script setup>
-import { ElIcon } from 'element-plus'
-import { computed } from 'vue'
+import { Back } from '@element-plus/icons-vue'
+import { ElButton, ElIcon, ElInput } from 'element-plus'
+import { computed, ref } from 'vue'
 import Draggable from 'vuedraggable'
 
 const props = defineProps({
@@ -99,10 +105,57 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  showCollapseToggle: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-const emit = defineEmits(['add-analytics', 'add-field', 'material-drag-end', 'material-drag-start', 'select-area'])
+const emit = defineEmits(['add-analytics', 'add-field', 'material-drag-end', 'material-drag-start', 'select-area', 'toggle-collapse'])
 const isFieldArea = computed(() => ['search', 'table', 'form'].includes(props.selectedArea))
+const keyword = ref('')
+
+const areaHints = {
+  search: '查询条件优先',
+  table: '表格列优先',
+  form: '表单项优先',
+  metrics: '统计指标组件',
+  charts: '图表组件',
+}
+
+const areaHint = computed(() => areaHints[props.selectedArea] || '点击或拖拽添加')
+
+const selectedAreaGroupName = computed(() => {
+  if (props.selectedArea === 'search') return '查询条件'
+  if (props.selectedArea === 'table') return '表格列'
+  if (props.selectedArea === 'form') return '表单项'
+  return ''
+})
+
+const filteredMaterialGroups = computed(() => {
+  const normalizedKeyword = keyword.value.trim().toLowerCase()
+  const groups = props.materialGroups.map((group) => {
+    const items = group.items.filter((fieldType) => {
+      if (!normalizedKeyword) return true
+      return [fieldType.label, fieldType.type, group.name].some((value) => String(value || '').toLowerCase().includes(normalizedKeyword))
+    })
+    return {
+      ...group,
+      name: selectedAreaGroupName.value ? `${selectedAreaGroupName.value} · ${group.name}` : group.name,
+      items,
+    }
+  })
+
+  return groups.filter((group) => group.items.length > 0)
+})
+
+const filteredAnalyticsMaterials = computed(() => {
+  const normalizedKeyword = keyword.value.trim().toLowerCase()
+  if (!normalizedKeyword) return props.analyticsMaterials
+  return props.analyticsMaterials.filter((material) => {
+    return [material.label, material.type, material.description].some((value) => String(value || '').toLowerCase().includes(normalizedKeyword))
+  })
+})
 
 function cloneMaterialItem(fieldType) {
   return {
@@ -116,7 +169,6 @@ function startAnalyticsDrag(event, type) {
   event.dataTransfer?.setData('application/x-lowcode-analytics', type)
   event.dataTransfer.effectAllowed = 'copy'
 }
-
 </script>
 
 <style scoped>
@@ -129,7 +181,7 @@ function startAnalyticsDrag(event, type) {
 }
 
 .panel-section {
-  padding: 14px;
+  padding: 12px;
   border-bottom: 1px solid #eef2f7;
 }
 
@@ -138,7 +190,7 @@ function startAnalyticsDrag(event, type) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .panel-heading span,
@@ -157,8 +209,44 @@ function startAnalyticsDrag(event, type) {
   font-size: 12px;
 }
 
+.material-search {
+  margin-bottom: 10px;
+}
+
+.module-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.module-pill {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  color: #4b5563;
+  font-size: 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.module-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-pill.active {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
 .material-group + .material-group {
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .group-title {
@@ -167,18 +255,16 @@ function startAnalyticsDrag(event, type) {
   font-size: 12px;
 }
 
-.material-grid {
+.material-grid,
+.analytics-material-grid,
+.module-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
 .material-card,
-.module-card {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  align-items: center;
-  gap: 8px;
+.module-card,
+.analytics-material-card {
   width: 100%;
   padding: 10px;
   color: #111827;
@@ -188,33 +274,43 @@ function startAnalyticsDrag(event, type) {
   border-radius: 6px;
 }
 
+.material-card:hover,
+.module-card:hover,
+.analytics-material-card:hover,
+.module-pill:hover {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
 .material-card {
-  grid-template-columns: 18px 1fr 14px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.material-card span {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .material-drag-handle {
   cursor: grab;
   color: #9ca3af;
-  letter-spacing: -2px;
   user-select: none;
-}
-
-.analytics-material-grid {
-  display: grid;
-  gap: 8px;
 }
 
 .analytics-material-card {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 4px 8px;
-  width: 100%;
-  padding: 10px;
-  color: #111827;
-  text-align: left;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+}
+
+.analytics-material-card span {
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .analytics-material-card small {
@@ -226,25 +322,26 @@ function startAnalyticsDrag(event, type) {
   white-space: nowrap;
 }
 
-.material-card span,
-.module-card span {
-  overflow: hidden;
+.module-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.35;
-  white-space: normal;
-}
-
-.module-card + .module-card {
-  margin-top: 8px;
 }
 
 .module-card.active {
   color: #2563eb;
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+
+.material-empty {
+  padding: 14px 8px;
+  color: #6b7280;
+  font-size: 12px;
+  text-align: center;
+  background: #f8fafc;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
 }
 </style>
