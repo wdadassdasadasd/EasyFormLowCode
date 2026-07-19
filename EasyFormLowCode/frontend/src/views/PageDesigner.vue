@@ -67,6 +67,7 @@
       :selected-metric-id="selectedMetricId"
       :selected-rows="selectedRows"
       :stats-rows="statsRows"
+      :stats-available="statsAvailable"
       :status-text="statusText"
       :table-fields="tableFields"
       @apply-search="applySearch"
@@ -228,11 +229,11 @@ import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import { buildDemoRows } from '../schema/defaultSchema'
-import { MATERIAL_FIELD_TYPES, getPropertySetters, normalizeField, normalizeOptions } from '../schema/fieldTypes'
+import { MATERIAL_FIELD_TYPES, getPropertySetters } from '../schema/fieldTypes'
 import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
 import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
 import { buildSchemaJson, buildTemplateJson, buildVueSfc, downloadTextFile, parseImportedSchema } from '../utils/codeExporter'
-import { applyDatasourceCapabilityToActions, normalizeEditableFieldProp } from '../utils/schemaEditor'
+import { applyDatasourceCapabilityToActions } from '../utils/schemaEditor'
 
 const emit = defineEmits(['editor-status-change'])
 const DESIGNER_MATERIAL_PANEL_KEY = 'lowcode_designer_material_collapsed'
@@ -255,7 +256,7 @@ const runtimeMode = 'draft'
 let syncSchemaModels = () => {}
 let syncDesignerSelection = () => {}
 
-const { pageSchema, pageStatus, replaceSchema, loadSchema: loadPageSchema, toPlainSchema } = usePageSchema({
+const { pageSchema, schemaRevision, replaceSchema, applyPageMetadata, cancelSchemaLoad, loadSchema: loadPageSchema, toPlainSchema } = usePageSchema({
   pageId,
   syncModels: () => syncSchemaModels(),
   afterReplace: (schema) => {
@@ -278,10 +279,12 @@ const {
   isOffline,
   readonlyRuntime,
   datasourceCapabilities,
+  statsAvailable,
   pagination,
   rowActions,
   batchActions,
   loadRecords,
+  cancelRecordsLoad,
   resetSearch,
   applySearch,
   openCreateDialog,
@@ -543,6 +546,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cancelSchemaLoad()
+  cancelRecordsLoad()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleHistoryShortcut)
   window.removeEventListener('resize', syncCompactLayout)
@@ -557,20 +562,23 @@ onBeforeRouteUpdate(async () => {
 })
 
 async function refreshDesigner() {
-  await loadSchema()
+  const result = await loadSchema()
+  if (result?.aborted) return
   await loadRecords()
 }
 
 async function loadSchema() {
   const result = await loadPageSchema()
+  if (result?.aborted) return result
   resetHistory(toPlainSchema(), 'load-schema')
   setEditorStatus(result?.status === 'published' ? 'published' : result ? 'saved' : 'dirty')
   statusText.value = result ? '已从后端恢复页面配置' : '后端不可用，当前使用前端演示配置'
+  return result
 }
 
 async function saveSchema() {
   const plainSchema = toPlainSchema()
-  let validation = validatePageSchema(plainSchema)
+  let validation
   try {
     validation = await validatePageSchemaContract(pageId.value, plainSchema)
   } catch {
@@ -584,24 +592,27 @@ async function saveSchema() {
     const result = await savePageSchemaRequest(pageId.value, {
       name: pageSchema.title,
       schema_json: validation.schema_json || plainSchema,
+      expected_revision: schemaRevision.value ?? undefined,
     })
-    pageStatus.value = result.status
+    applyPageMetadata(result)
     setEditorStatus('saved')
     statusText.value = '页面配置已保存，并生成历史版本'
     ElMessage.success('保存成功')
   } catch (error) {
+    if (await reloadAfterSchemaConflict(error)) return
     ElMessage.error(error?.message || '保存失败，请确认后端服务已启动')
   }
 }
 
 async function publishSchema() {
   try {
-    const result = await publishPage(pageId.value)
-    pageStatus.value = result.status
+    const result = await publishPage(pageId.value, schemaRevision.value)
+    applyPageMetadata(result)
     setEditorStatus('published')
     statusText.value = '页面已发布，可进入运行预览'
     ElMessage.success('发布成功')
   } catch (error) {
+    if (await reloadAfterSchemaConflict(error)) return
     ElMessage.error(error?.message || '发布失败，请确认后端服务已启动')
   }
 }
@@ -611,14 +622,19 @@ async function syncEntityPage() {
     ElMessage.info('当前页面未绑定数据实体')
     return
   }
+  if (hasUnsavedChanges()) {
+    ElMessage.warning('Please save local page changes before synchronizing entity fields.')
+    return
+  }
   try {
-    const result = await syncEntityPageRequest(pageId.value)
-    replaceSchema(result.schema_json)
-    syncSelectionAfterSchema(pageSchema)
-    markSchemaDirty('sync-entity-page')
-    statusText.value = '已同步实体新增字段，请保存并发布'
+    const result = await syncEntityPageRequest(pageId.value, schemaRevision.value)
+    replaceAndResetHistory(result.schema_json, 'sync-entity-page')
+    applyPageMetadata(result)
+    setEditorStatus('saved')
+    statusText.value = '已同步并保存草稿，待发布'
     ElMessage.success('实体字段已同步到页面')
   } catch (error) {
+    if (await reloadAfterSchemaConflict(error)) return
     ElMessage.error(error?.message || '实体字段同步失败')
   }
 }
@@ -716,19 +732,6 @@ function handleAreaSelect(area) {
 
 function addMetric() {
   return editorAddMetric()
-  const id = `metric_${Date.now()}`
-  pageSchema.metrics = [...(pageSchema.metrics || []), {
-    id,
-    title: '新统计卡片',
-    type: 'total',
-    tone: 'blue',
-    prefix: '',
-    suffix: '',
-    precision: 0,
-    recentDays: 30,
-  }]
-  selectMetric(id)
-  markSchemaDirty()
 }
 
 function addAnalytics(type) {
@@ -785,58 +788,18 @@ function normalizeSelectedFieldProp() {
 
 function addOption() {
   return editorAddOption()
-  if (!selectedField.value) {
-    return
-  }
-
-  selectedField.value.options.push({
-    label: `选项${selectedField.value.options.length + 1}`,
-    value: `option_${selectedField.value.options.length + 1}`,
-  })
-  selectedField.value.options = normalizeOptions(selectedField.value.options)
-  markSchemaDirty()
 }
 
 function removeOption(index) {
   return editorRemoveOption(index)
-  if (!selectedField.value) {
-    return
-  }
-
-  selectedField.value.options.splice(index, 1)
-  selectedField.value.options = normalizeOptions(selectedField.value.options)
-  markSchemaDirty()
 }
 
 function addChart(chartType = 'pie') {
   return editorAddChart(chartType)
-  const field = pageSchema.fields[0]
-  const numericField = pageSchema.fields.find((item) => ['number', 'slider', 'rate'].includes(item.type))
-  const nextCharts = [...normalizedCharts.value]
-  const id = `chart_${Date.now()}`
-  nextCharts.push({
-    id,
-    type: chartType,
-    title: '新图表',
-    dimension: field?.prop || '',
-    metric: ['line', 'area'].includes(chartType) && numericField ? 'sum' : 'count',
-    measureField: numericField?.prop || '',
-    limit: 8,
-    sort: ['line', 'area'].includes(chartType) ? 'asc' : 'desc',
-  })
-  pageSchema.charts = nextCharts.map(({ aggregate, ...chart }) => chart)
-  selectChart(id)
-  markSchemaDirty()
 }
 
 function removeChart(index) {
   return editorRemoveChart(index)
-  const removedId = pageSchema.charts[index]?.id
-  pageSchema.charts.splice(index, 1)
-  if (selectedChartId.value === removedId) {
-    selectedChartId.value = pageSchema.charts[Math.max(index - 1, 0)]?.id || pageSchema.charts[0]?.id || ''
-  }
-  markSchemaDirty()
 }
 
 function markSchemaDirty() {
@@ -855,7 +818,11 @@ function handleHistoryShortcut(event) {
   if (!event.ctrlKey && !event.metaKey) return
   if (event.key.toLowerCase() === 'z') {
     event.preventDefault()
-    event.shiftKey ? redoSchema() : undoSchema()
+    if (event.shiftKey) {
+      redoSchema()
+    } else {
+      undoSchema()
+    }
   }
 }
 
@@ -969,16 +936,36 @@ async function restoreVersion(version) {
   await ElMessageBox.confirm(`确认回滚到版本 ${version.version_no} 吗？`, '版本回滚', { type: 'warning' })
 
   try {
-    const result = await restorePageVersion(pageId.value, version.id)
+    const result = await restorePageVersion(pageId.value, version.id, schemaRevision.value)
     replaceAndResetHistory(result.schema_json, 'restore-version')
-    pageStatus.value = result.status
+    applyPageMetadata(result)
     setEditorStatus('saved')
     statusText.value = `已回滚到版本 ${version.version_no}`
     ElMessage.success('回滚成功')
     await loadVersions()
   } catch (error) {
+    if (await reloadAfterSchemaConflict(error)) return
     ElMessage.error(error?.message || '回滚失败，请确认后端服务已启动')
   }
+}
+
+async function reloadAfterSchemaConflict(error) {
+  const detail = error?.payload?.detail
+  if (error?.status !== 409 || detail?.code !== 'schema_revision_conflict') return false
+  try {
+    await ElMessageBox.confirm(
+      'This page changed in another session. Loading the latest version will discard your unsaved local edits.',
+      'Version conflict',
+      { type: 'warning', confirmButtonText: 'Load latest version', cancelButtonText: 'Keep editing' },
+    )
+  } catch {
+    return true
+  }
+  const result = await loadSchema()
+  if (result && !result.aborted) {
+    ElMessage.info('The latest server version has been loaded. Please reapply local changes manually.')
+  }
+  return true
 }
 
 function downloadSchema() {

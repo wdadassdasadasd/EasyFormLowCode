@@ -242,7 +242,7 @@
           </Draggable>
         </section>
 
-        <section class="analytics-stack">
+        <section v-if="statsAvailable" class="analytics-stack">
           <section
             class="metrics-grid analytics-section canvas-zone"
             :class="{ selected: selectedArea === 'metrics' }"
@@ -289,7 +289,7 @@
               :class="{ active: selectedChartId === chart.id }"
               @click.stop="emit('select-chart', chart.id)"
             >
-              <ChartRenderer :chart="chart" :aggregate="chart.aggregate" :records="statsRows" :fields="pageSchema.fields" />
+              <LazyChartRenderer :chart="chart" :aggregate="chart.aggregate" :records="statsRows" :fields="pageSchema.fields" />
             </div>
             <div v-if="normalizedCharts.length === 0" class="analytics-empty">从组件库添加图表</div>
           </section>
@@ -305,7 +305,7 @@ import { ElAlert, ElButton, ElEmpty, ElForm, ElFormItem, ElPagination, ElTable, 
 import { computed } from 'vue'
 import Draggable from 'vuedraggable'
 
-import ChartRenderer from '../../renderer/ChartRenderer.vue'
+import LazyChartRenderer from '../../renderer/LazyChartRenderer.vue'
 import FieldControl from '../../renderer/FieldControl.vue'
 import TableFieldColumn from '../../renderer/TableFieldColumn.vue'
 
@@ -409,6 +409,10 @@ const props = defineProps({
   statsRows: {
     type: Array,
     default: () => [],
+  },
+  statsAvailable: {
+    type: Boolean,
+    default: true,
   },
   statusText: {
     type: String,

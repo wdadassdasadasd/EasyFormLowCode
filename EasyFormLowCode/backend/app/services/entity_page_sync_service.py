@@ -7,6 +7,7 @@ from app.models.entity import Entity
 from app.models.page import Page
 from app.services.entity_service import build_entity_page_schema
 from app.services.page_version_service import create_page_version
+from app.services.page_revision_service import require_schema_revision, update_page_with_revision
 from app.services.schema_contract import normalize_page_schema
 
 
@@ -70,21 +71,25 @@ def merge_entity_page_schema(current: dict[str, Any], generated: dict[str, Any])
     return merged
 
 
-def sync_entity_page(db: Session, page_id: str) -> Page | None:
+def sync_entity_page(db: Session, page_id: str, expected_revision: int | None = None) -> Page | None:
     page = db.query(Page).filter(Page.page_key == page_id).first()
     if not page:
         return None
     if not page.entity_id:
         raise ValueError("page is not bound to an entity")
+    require_schema_revision(page, expected_revision)
     entity = db.query(Entity).filter(Entity.id == page.entity_id).first()
     if not entity:
         raise ValueError("bound entity was not found")
     current = json.loads(page.schema_json)
     generated = build_entity_page_schema(db, entity, page.template_key or "standard_crud")
     normalized = normalize_page_schema(page_id, merge_entity_page_schema(current, generated))
-    page.schema_json = json.dumps(normalized, ensure_ascii=False)
-    page.status = "draft"
-    db.add(page)
+    page = update_page_with_revision(
+        db,
+        page,
+        expected_revision,
+        {"schema_json": json.dumps(normalized, ensure_ascii=False), "status": "draft"},
+    )
     create_page_version(db, page, normalized, message="实体字段已同步到页面")
     db.commit()
     db.refresh(page)

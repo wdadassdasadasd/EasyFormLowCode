@@ -4,12 +4,12 @@ export function listPages() {
   return apiRequest('/pages')
 }
 
-export function getPage(pageId) {
-  return apiRequest(`/pages/${pageId}`)
+export function getPage(pageId, { signal } = {}) {
+  return apiRequest(`/pages/${pageId}`, { signal })
 }
 
-export function getPublishedPage(pageId) {
-  return apiRequest(`/pages/${pageId}/published`)
+export function getPublishedPage(pageId, { signal } = {}) {
+  return apiRequest(`/pages/${pageId}/published`, { signal })
 }
 
 export function savePageSchema(pageId, payload) {
@@ -19,12 +19,16 @@ export function savePageSchema(pageId, payload) {
   })
 }
 
-export function publishPage(pageId) {
+export function publishPage(pageId, expectedRevision) {
   return apiRequest(`/pages/${pageId}/publish`, {
     method: 'POST',
+    body: { expected_revision: expectedRevision },
   })
 }
 
-export function syncEntityPage(pageId) {
-  return apiRequest(`/pages/${pageId}/sync-entity`, { method: 'POST' })
+export function syncEntityPage(pageId, expectedRevision) {
+  return apiRequest(`/pages/${pageId}/sync-entity`, {
+    method: 'POST',
+    body: { expected_revision: expectedRevision },
+  })
 }

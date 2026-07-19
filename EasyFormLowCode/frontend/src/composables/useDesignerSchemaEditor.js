@@ -275,7 +275,7 @@ export function useDesignerSchemaEditor({
       limit: 8,
       sort: ['line', 'area'].includes(chartType) ? 'asc' : 'desc',
     })
-    pageSchema.charts = nextCharts.map(({ aggregate, ...chart }) => chart)
+    pageSchema.charts = nextCharts.map(({ aggregate: _aggregate, ...chart }) => chart)
     selectChart(id)
     markSchemaDirty('add-chart')
   }

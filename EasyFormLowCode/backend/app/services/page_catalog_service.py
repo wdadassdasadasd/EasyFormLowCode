@@ -8,9 +8,10 @@ from app.models.page import Page
 from app.models.page_record import PageRecord
 from app.models.page_version import PageVersion
 from app.services.entity_service import build_entity_page_schema
+from app.services.entity_page_sync_service import merge_entity_page_schema
 from app.services.page_version_service import create_page_version
 from app.services.project_service import get_project, normalize_entity_name
-from app.services.schema_contract import create_crud_template
+from app.services.schema_contract import create_crud_template, get_page_schema_validation_errors, normalize_page_schema
 
 
 def create_page(
@@ -20,6 +21,7 @@ def create_page(
     name: str,
     entity_id: int | None = None,
     template_key: str | None = None,
+    template_schema: dict[str, Any] | None = None,
 ) -> Page:
     if not get_project(db, project_id):
         raise LookupError("project not found")
@@ -34,8 +36,16 @@ def create_page(
     if selected_template not in {"standard_crud", "master_data", "operations_dashboard"}:
         raise ValueError("template key is invalid")
     schema_json = build_entity_page_schema(db, entity, selected_template) if entity else create_crud_template(page_id, normalized_name)
+    if template_schema is not None:
+        if not isinstance(template_schema, dict):
+            raise ValueError("template schema must be an object")
+        schema_json = merge_entity_page_schema(template_schema, schema_json) if entity else {**schema_json, **template_schema}
     schema_json["id"] = page_id
     schema_json["title"] = normalized_name
+    validation_errors = get_page_schema_validation_errors(schema_json)
+    if validation_errors:
+        raise ValueError("; ".join(validation_errors))
+    schema_json = normalize_page_schema(page_id, schema_json)
     page = Page(
         project_id=project_id,
         entity_id=entity.id if entity else None,

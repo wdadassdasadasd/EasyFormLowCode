@@ -73,7 +73,7 @@ def test_entity_relation_generates_runtime_page_and_enforces_reference_integrity
     assert generated.json()["entity_id"] == order["id"]
 
     create_field(client, order["id"], "note", "Note")
-    synced = client.post("/api/pages/orders/sync-entity")
+    synced = client.post("/api/pages/orders/sync-entity", json={"expected_revision": client.get("/api/pages/orders").json()["schema_revision"]})
     assert synced.status_code == 200
     assert {field["prop"] for field in synced.json()["schema_json"]["fields"]} >= {"order_no", "supplier_id", "note"}
 
@@ -119,7 +119,7 @@ def test_patch_field_renames_bound_page_references_and_delete_conflicts_are_stru
         "operator": "contains",
         "defaultValue": "",
     }]
-    save = client.put("/api/pages/customers/schema", json={"name": "Customers", "schema_json": schema})
+    save = client.put("/api/pages/customers/schema", json={"name": "Customers", "schema_json": schema, "expected_revision": page.json()["schema_revision"]})
     assert save.status_code == 200
 
     renamed = client.patch(
@@ -132,8 +132,10 @@ def test_patch_field_renames_bound_page_references_and_delete_conflicts_are_stru
     page = client.get("/api/pages/customers")
     assert page.status_code == 200
     current_schema = page.json()["schema_json"]
+    assert page.json()["schema_revision"] == save.json()["schema_revision"] + 1
     assert current_schema["fields"][0]["prop"] == "customer_name"
     assert current_schema["queries"][0]["fieldProp"] == "customer_name"
+    assert len(client.get("/api/pages/customers/versions").json()) == 3
 
     conflict = client.delete(f"/api/entities/{entity['id']}")
     assert conflict.status_code == 409

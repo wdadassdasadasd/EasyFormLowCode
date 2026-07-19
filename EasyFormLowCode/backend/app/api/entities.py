@@ -116,6 +116,8 @@ def reference_options(entity_id: int, field_id: int, search: str = "", db: Sessi
         return entity_service.list_reference_options(db, entity_id, field_id, search)
     except LookupError as error:
         _error(error)
+    except ValueError as error:
+        _error(error)
 
 
 @router.get("/entities/{entity_id}/records")
@@ -123,7 +125,7 @@ def list_records(entity_id: int, request: Request, page: int = 1, pageSize: int 
     try:
         filters = {key: value for key, value in request.query_params.items() if key not in {"page", "pageSize"}}
         return entity_service.list_entity_records(db, entity_id, filters, page, pageSize)
-    except LookupError as error:
+    except (LookupError, ValueError) as error:
         _error(error)
 
 

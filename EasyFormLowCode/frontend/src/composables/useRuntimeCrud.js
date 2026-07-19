@@ -58,16 +58,28 @@ export function useRuntimeCrud({
   const datasource = computed(() => unref(pageSchema)?.datasource || unref(pageSchema)?.api || {})
   const datasourceCapabilities = computed(() => getDatasourceCapabilities(datasource.value))
   const readonlyRuntime = computed(() => !datasourceCapabilities.value.create && !datasourceCapabilities.value.update && !datasourceCapabilities.value.delete)
+  const statsAvailable = computed(() => datasourceCapabilities.value.stats)
   const queryItems = computed(() => Array.isArray(unref(pageSchema)?.queries) ? unref(pageSchema).queries : [])
   const rowActions = computed(() => Array.isArray(unref(pageSchema)?.rowActions) ? unref(pageSchema).rowActions : [])
   const batchActions = computed(() => Array.isArray(unref(pageSchema)?.batchActions) ? unref(pageSchema).batchActions : [])
+  let recordsRequestId = 0
+  let recordsAbortController = null
+
+  function cancelRecordsLoad() {
+    recordsAbortController?.abort()
+    recordsAbortController = null
+  }
 
   async function loadRecords() {
+    const requestId = ++recordsRequestId
+    cancelRecordsLoad()
+    const controller = new AbortController()
+    recordsAbortController = controller
+    const isCurrentRequest = () => requestId === recordsRequestId && recordsAbortController === controller
+
     recordsLoading.value = true
     runtimeError.value = ''
-    runtimeNotice.value = datasource.value?.mode === 'rest' && readonlyRuntime.value
-      ? 'External datasource is read-only until write operations are enabled and endpoints are configured.'
-      : ''
+    runtimeNotice.value = getRuntimeNotice()
     isOffline.value = false
 
     try {
@@ -79,13 +91,17 @@ export function useRuntimeCrud({
         page: pagination.currentPage,
         pageSize: pagination.pageSize,
         filters,
+        signal: controller.signal,
       })
       const normalizedResult = normalizeRecordListResponse(result, datasource.value)
+      if (!isCurrentRequest()) return { aborted: true }
       recordRows.value = normalizedResult.items
       pagination.total = normalizedResult.total
       pagination.currentPage = normalizedResult.page
-      await loadStats(filters)
+      await loadStats(filters, { signal: controller.signal, isCurrentRequest })
+      return normalizedResult
     } catch (error) {
+      if (!isCurrentRequest() || isAbortError(error)) return { aborted: true }
       recordRows.value = fallbackRows()
       statsRows.value = recordRows.value
       statsMetrics.value = []
@@ -93,28 +109,42 @@ export function useRuntimeCrud({
       pagination.total = recordRows.value.length
       runtimeError.value = error?.message || 'Runtime data request failed'
       isOffline.value = true
+      return null
     } finally {
-      recordsLoading.value = false
+      if (isCurrentRequest()) {
+        recordsLoading.value = false
+        recordsAbortController = null
+      }
     }
   }
 
-  async function loadStats(filters = buildFilters()) {
-    if (readonlyRuntime.value) {
+  async function loadStats(filters = buildFilters(), { signal, isCurrentRequest = () => true } = {}) {
+    if (!statsAvailable.value) {
       statsRows.value = []
       statsMetrics.value = []
       statsCharts.value = []
       return
     }
 
-    const result = await getRuntimeStats(unref(pageId), {
-      datasource: datasource.value,
-      mode: unref(runtimeMode),
-      onRequestSettled: trackRequest,
-      filters,
-    })
-    statsRows.value = result.records || []
-    statsMetrics.value = result.metrics || []
-    statsCharts.value = result.charts || []
+    try {
+      const result = await getRuntimeStats(unref(pageId), {
+        datasource: datasource.value,
+        mode: unref(runtimeMode),
+        onRequestSettled: trackRequest,
+        filters,
+        signal,
+      })
+      if (!isCurrentRequest()) return
+      statsRows.value = result.records || []
+      statsMetrics.value = result.metrics || []
+      statsCharts.value = result.charts || []
+    } catch (error) {
+      if (!isCurrentRequest() || isAbortError(error)) return
+      statsRows.value = []
+      statsMetrics.value = []
+      statsCharts.value = []
+      runtimeNotice.value = 'Records loaded successfully, but statistics are temporarily unavailable. Retry the query to refresh them.'
+    }
   }
 
   function resetSearch() {
@@ -310,6 +340,17 @@ export function useRuntimeCrud({
     return buildSearchFilters(searchableFields.value, searchModel, queryItems.value)
   }
 
+  function getRuntimeNotice() {
+    if (datasource.value?.mode !== 'rest') return ''
+    if (!statsAvailable.value) {
+      return 'External datasource records are available; statistics and charts are hidden because no statistics endpoint is configured.'
+    }
+    if (readonlyRuntime.value) {
+      return 'External datasource is read-only until write operations are enabled and endpoints are configured.'
+    }
+    return ''
+  }
+
   function trackRequest(request) {
     const sanitized = sanitizeRequest(request)
     sanitized.failureReason = classifyRequestFailure(sanitized)
@@ -346,12 +387,14 @@ export function useRuntimeCrud({
     requestHistory,
     readonlyRuntime,
     datasourceCapabilities,
+    statsAvailable,
     pagination,
     queryItems,
     rowActions,
     batchActions,
     loadRecords,
     loadStats,
+    cancelRecordsLoad,
     resetSearch,
     applySearch,
     openCreateDialog,
@@ -415,4 +458,8 @@ async function maybeConfirm(message, title) {
 
 function isCancelError(error) {
   return error === 'cancel' || error === 'close' || error === 'closed'
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || error?.code === 'ABORT_ERR'
 }

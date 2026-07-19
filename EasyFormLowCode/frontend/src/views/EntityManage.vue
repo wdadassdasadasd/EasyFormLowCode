@@ -188,7 +188,6 @@ import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { createEntity, createEntityField, createEntityRelation, deleteEntityField, getEntity, listProjectEntities } from '../api/entities'
-import { getPage, savePageSchema } from '../api/pages'
 import { parseImportedSchema } from '../utils/codeExporter'
 
 const catalog = inject('projectCatalog')
@@ -378,60 +377,18 @@ function handleTemplateFileChange(event) {
   event.target.value = ''
 }
 
-async function applyImportedTemplate(page) {
-  if (!importedTemplateText.value) {
-    return
-  }
-  const pageDetail = await getPage(page.page_id)
-  const currentSchema = pageDetail.schema_json
-  const importedTemplate = parseImportedSchema(importedTemplateText.value, page.page_id)
-  const mergedSchema = {
-    ...currentSchema,
-    actions: importedTemplate.actions || currentSchema.actions,
-    metrics: importedTemplate.metrics || currentSchema.metrics,
-    charts: importedTemplate.charts || currentSchema.charts,
-    queries: importedTemplate.queries || [],
-    rowActions: importedTemplate.rowActions || [],
-    batchActions: importedTemplate.batchActions || [],
-    templateKey: importedTemplate.templateKey || currentSchema.templateKey,
-    fields: currentSchema.fields.map((field) => {
-      const matched = (importedTemplate.fields || []).find((templateField) => {
-        if (field.entityFieldId && templateField.entityFieldId) {
-          return field.entityFieldId === templateField.entityFieldId
-        }
-        return templateField.prop === field.prop
-      })
-      return matched
-        ? {
-            ...field,
-            ...matched,
-            id: field.id,
-            prop: field.prop,
-            entityFieldId: field.entityFieldId,
-          }
-        : field
-    }),
-    datasource: currentSchema.datasource,
-    api: currentSchema.datasource,
-    entity: currentSchema.entity,
-    id: currentSchema.id,
-    title: currentSchema.title,
-  }
-  await savePageSchema(page.page_id, {
-    name: page.name,
-    schema_json: mergedSchema,
-  })
-}
-
 async function generatePage() {
   if (!selectedEntity.value) return
   submitting.value = true
   try {
+    const templateSchema = importedTemplateText.value
+      ? parseImportedSchema(importedTemplateText.value, pageForm.page_id)
+      : undefined
     const page = await catalog.addPage(projectId.value, {
       ...pageForm,
       entity_id: selectedEntity.value.id,
+      template_schema: templateSchema,
     })
-    await applyImportedTemplate(page)
     pageDialogVisible.value = false
     router.push({ path: '/pagedesigner', query: { projectId: projectId.value, pageId: page.page_id } })
     ElMessage.success('后台页面已生成')

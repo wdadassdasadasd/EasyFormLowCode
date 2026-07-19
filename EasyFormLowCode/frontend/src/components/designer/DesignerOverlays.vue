@@ -39,7 +39,7 @@
           </div>
           <div class="version-actions">
             <el-button size="small" @click="emit('select-version', version)">查看</el-button>
-            <el-button size="small" type="primary" plain @click="emit('restore-version', version)">回滚</el-button>
+            <el-button :data-testid="`restore-version-${version.version_no}`" size="small" type="primary" plain @click="emit('restore-version', version)">回滚</el-button>
           </div>
         </div>
 

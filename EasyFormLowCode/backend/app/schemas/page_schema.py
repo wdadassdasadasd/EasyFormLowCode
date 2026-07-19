@@ -8,6 +8,11 @@ class PageSchemaUpdate(BaseModel):
 
     name: str = "用户管理"
     schema_data: dict[str, Any] = Field(default_factory=dict, alias="schema_json")
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class PageRevisionCommand(BaseModel):
+    expected_revision: int = Field(ge=1)
 
 
 class PageSchemaResponse(BaseModel):
@@ -19,6 +24,7 @@ class PageSchemaResponse(BaseModel):
     schema_data: dict[str, Any] = Field(alias="schema_json")
     published_version_no: int | None = None
     published_at: str | None = None
+    schema_revision: int
     entity_id: int | None = None
     template_key: str | None = None
 
@@ -56,6 +62,7 @@ class PageCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     entity_id: int | None = None
     template_key: str | None = Field(default=None, max_length=40)
+    template_schema: dict[str, Any] | None = None
 
 
 class PageMetadataUpdate(BaseModel):

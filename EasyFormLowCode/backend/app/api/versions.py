@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.page_schema import PageSchemaResponse, PageVersionResponse
+from app.schemas.page_schema import PageRevisionCommand, PageSchemaResponse, PageVersionResponse
 from app.services.page_schema_service import page_to_response
 from app.services.page_version_service import (
     get_page_version,
@@ -10,6 +10,7 @@ from app.services.page_version_service import (
     restore_page_version,
     version_to_response,
 )
+from app.services.page_revision_service import SchemaRevisionConflictError
 
 router = APIRouter(prefix="/pages", tags=["versions"])
 
@@ -19,7 +20,10 @@ router = APIRouter(prefix="/pages", tags=["versions"])
     response_model=list[PageVersionResponse],
 )
 def get_page_versions(page_id: str, db: Session = Depends(get_db)):
-    return list_page_versions(db, page_id)
+    try:
+        return list_page_versions(db, page_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @router.get(
@@ -31,7 +35,10 @@ def get_page_version_detail(
     version_id: int,
     db: Session = Depends(get_db),
 ):
-    version = get_page_version(db, page_id, version_id)
+    try:
+        version = get_page_version(db, page_id, version_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
     if not version:
         raise HTTPException(status_code=404, detail="version not found")
@@ -46,9 +53,15 @@ def get_page_version_detail(
 def restore_page_version_schema(
     page_id: str,
     version_id: int,
+    payload: PageRevisionCommand,
     db: Session = Depends(get_db),
 ):
-    page = restore_page_version(db, page_id, version_id)
+    try:
+        page = restore_page_version(db, page_id, version_id, payload.expected_revision)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except SchemaRevisionConflictError as error:
+        raise HTTPException(status_code=409, detail=error.to_detail()) from error
 
     if not page:
         raise HTTPException(status_code=404, detail="version not found")

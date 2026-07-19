@@ -3,6 +3,7 @@
     :is="resolvedComponent"
     v-model="fieldValue"
     class="schema-field-control"
+    :data-testid="`field-${field.prop}`"
     v-bind="controlProps"
     @keyup.enter="emit('enter')"
   >

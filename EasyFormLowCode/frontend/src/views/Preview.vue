@@ -59,7 +59,7 @@
             <span>共 {{ pagination.total }} 条</span>
           </div>
           <div class="toolbar-left">
-            <el-button v-if="pageActions.create" type="primary" :disabled="readonlyRuntime" @click="openCreateDialog">新增</el-button>
+            <el-button v-if="pageActions.create" data-testid="runtime-create" type="primary" :disabled="readonlyRuntime" @click="openCreateDialog">新增</el-button>
             <el-button v-if="pageActions.edit" :disabled="readonlyRuntime || selectedRows.length !== 1" @click="openSelectedEditDialog">编辑</el-button>
             <el-button
               v-if="pageActions.batchDelete"
@@ -121,7 +121,7 @@
         </div>
       </section>
 
-      <section class="metrics-grid">
+      <section v-if="statsAvailable" class="metrics-grid">
         <div v-for="metric in metricCards" :key="metric.id" class="metric-card" :class="metric.tone">
           <span>{{ metric.title }}</span>
           <strong>{{ metric.displayValue || metric.value }}</strong>
@@ -129,8 +129,8 @@
         </div>
       </section>
 
-      <section class="chart-grid">
-        <ChartRenderer
+      <section v-if="statsAvailable" class="chart-grid">
+        <LazyChartRenderer
           v-for="chart in normalizedCharts"
           :key="chart.id"
           :chart="chart"
@@ -159,7 +159,7 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitDialog">确定</el-button>
+        <el-button data-testid="runtime-submit" type="primary" :loading="submitLoading" @click="submitDialog">确定</el-button>
       </template>
     </el-dialog>
   </section>
@@ -175,7 +175,7 @@ import { useRuntimeCrud } from '../composables/useRuntimeCrud'
 import { useSchemaModels } from '../composables/useSchemaModels'
 import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import RequestInspector from '../components/RequestInspector.vue'
-import ChartRenderer from '../renderer/ChartRenderer.vue'
+import LazyChartRenderer from '../renderer/LazyChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
 import { buildDemoRows } from '../schema/defaultSchema'
@@ -214,6 +214,7 @@ const {
   lastRequest,
   requestHistory,
   readonlyRuntime,
+  statsAvailable,
   pagination,
   rowActions,
   batchActions,
@@ -293,7 +294,8 @@ async function loadPreview() {
       return
     }
   }
-  await loadSchema()
+  const result = await loadSchema()
+  if (result?.aborted) return
   await loadRecords()
 }
 
@@ -304,6 +306,7 @@ async function loadSchema() {
       ? '已加载草稿 PageSchema'
       : '已加载发布 PageSchema'
     : '后端不可用，当前使用演示 PageSchema'
+  return result
 }
 
 function buildChartViewModels(schema, aggregates = []) {

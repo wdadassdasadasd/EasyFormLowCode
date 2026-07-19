@@ -9,6 +9,9 @@ from app.models.entity import Entity, EntityField, EntityRecord, EntityRecordRel
 from app.models.page import Page
 from app.models.project import Project
 from app.services.analytics_service import build_stats_payload
+from app.services.page_revision_service import update_page_with_revision
+from app.services.page_version_service import create_page_version
+from app.services.runtime_limits import MAX_IN_MEMORY_SCAN, ensure_scan_limit
 
 
 ENTITY_FIELD_TYPES = {"text", "textarea", "integer", "number", "boolean", "date", "datetime", "enum", "relation"}
@@ -328,7 +331,14 @@ def list_reference_options(db: Session, entity_id: int, relation_field_id: int, 
     ).first()
     if not relation:
         raise LookupError("relation not found")
-    rows = db.query(EntityRecord).filter(EntityRecord.entity_id == relation.target_entity_id).order_by(EntityRecord.id.desc()).all()
+    rows = (
+        db.query(EntityRecord)
+        .filter(EntityRecord.entity_id == relation.target_entity_id)
+        .order_by(EntityRecord.id.desc())
+        .limit(MAX_IN_MEMORY_SCAN + 1)
+        .all()
+    )
+    ensure_scan_limit(len(rows), "reference options")
     needle = search.strip().lower()
     options = []
     for row in rows:
@@ -472,21 +482,44 @@ def _apply_record_data(db: Session, record: EntityRecord, data: dict[str, Any]) 
             )
 
 
-def entity_record_to_response(db: Session, record: EntityRecord) -> dict[str, Any]:
-    fields, relation_by_field = _entity_fields(db, record.entity_id)
-    relation_rows = db.query(EntityRecordRelation).filter(EntityRecordRelation.source_record_id == record.id).all()
-    target_by_relation = {item.relation_id: item.target_record_id for item in relation_rows}
-    data = _json(record.data_json, {})
-    for field in fields:
-        relation = relation_by_field.get(field.id)
-        if relation:
-            data[field.field_key] = target_by_relation.get(relation.id)
-    return {
-        "id": record.id,
-        "data": data,
-        "created_at": record.created_at.isoformat(),
-        "updated_at": record.updated_at.isoformat(),
+def _entity_records_to_responses(db: Session, records: list[EntityRecord]) -> list[dict[str, Any]]:
+    if not records:
+        return []
+    fields, relation_by_field = _entity_fields(db, records[0].entity_id)
+    record_ids = [record.id for record in records]
+    relation_rows = (
+        db.query(EntityRecordRelation)
+        .filter(EntityRecordRelation.source_record_id.in_(record_ids))
+        .all()
+    )
+    targets_by_record = {
+        record_id: {
+            item.relation_id: item.target_record_id
+            for item in relation_rows
+            if item.source_record_id == record_id
+        }
+        for record_id in record_ids
     }
+    responses = []
+    for record in records:
+        data = dict(_json(record.data_json, {}))
+        for field in fields:
+            relation = relation_by_field.get(field.id)
+            if relation:
+                data[field.field_key] = targets_by_record[record.id].get(relation.id)
+        responses.append(
+            {
+                "id": record.id,
+                "data": data,
+                "created_at": record.created_at.isoformat(),
+                "updated_at": record.updated_at.isoformat(),
+            },
+        )
+    return responses
+
+
+def entity_record_to_response(db: Session, record: EntityRecord) -> dict[str, Any]:
+    return _entity_records_to_responses(db, [record])[0]
 
 
 def create_entity_record(db: Session, entity_id: int, data: dict[str, Any]) -> EntityRecord:
@@ -513,13 +546,21 @@ def update_entity_record(db: Session, entity_id: int, record_id: int, data: dict
 def list_entity_records(db: Session, entity_id: int, filters: dict[str, str], page: int, page_size: int) -> dict[str, Any]:
     if not get_entity(db, entity_id):
         raise LookupError("entity not found")
-    records = db.query(EntityRecord).filter(EntityRecord.entity_id == entity_id).order_by(EntityRecord.id.desc()).all()
-    items = [entity_record_to_response(db, record) for record in records]
+    query = db.query(EntityRecord).filter(EntityRecord.entity_id == entity_id).order_by(EntityRecord.id.desc())
     active_filters = {key: str(value).lower() for key, value in filters.items() if value not in (None, "")}
     if active_filters:
+        records = query.limit(MAX_IN_MEMORY_SCAN + 1).all()
+        ensure_scan_limit(len(records), "record filtering")
+        items = _entity_records_to_responses(db, records)
         items = [item for item in items if all(value in str(item["data"].get(key, "")).lower() for key, value in active_filters.items())]
+        total = len(items)
+    else:
+        total = query.count()
+        safe_size = max(1, min(int(page_size), 100))
+        safe_page = max(1, min(int(page), max(1, (total + safe_size - 1) // safe_size)))
+        records = query.offset((safe_page - 1) * safe_size).limit(safe_size).all()
+        return {"items": _entity_records_to_responses(db, records), "total": total, "page": safe_page, "pageSize": safe_size}
     safe_size = max(1, min(int(page_size), 100))
-    total = len(items)
     safe_page = max(1, min(int(page), max(1, (total + safe_size - 1) // safe_size)))
     start = (safe_page - 1) * safe_size
     return {"items": items[start:start + safe_size], "total": total, "page": safe_page, "pageSize": safe_size}
@@ -533,10 +574,15 @@ def list_entity_record_stats(
 ) -> dict[str, Any]:
     if not get_entity(db, entity_id):
         raise LookupError("entity not found")
-    rows = [
-        entity_record_to_response(db, record)
-        for record in db.query(EntityRecord).filter(EntityRecord.entity_id == entity_id).order_by(EntityRecord.id.desc()).all()
-    ]
+    records = (
+        db.query(EntityRecord)
+        .filter(EntityRecord.entity_id == entity_id)
+        .order_by(EntityRecord.id.desc())
+        .limit(MAX_IN_MEMORY_SCAN + 1)
+        .all()
+    )
+    ensure_scan_limit(len(records), "record statistics")
+    rows = _entity_records_to_responses(db, records)
     active_filters = {key: str(value).lower() for key, value in filters.items() if value not in (None, "")}
     if active_filters:
         rows = [row for row in rows if all(value in str(row["data"].get(key, "")).lower() for key, value in active_filters.items())]
@@ -665,16 +711,18 @@ def _sync_renamed_field_references(db: Session, entity_id: int, field_id: int, o
     for page in pages:
         changed = False
         draft_schema = _json(page.schema_json, {})
+        updates = {}
         if _rewrite_schema_field_references(draft_schema, field_id, old_key, new_key):
-            page.schema_json = json.dumps(draft_schema, ensure_ascii=False)
+            updates["schema_json"] = json.dumps(draft_schema, ensure_ascii=False)
             changed = True
         if page.published_schema_json:
             published_schema = _json(page.published_schema_json, {})
             if _rewrite_schema_field_references(published_schema, field_id, old_key, new_key):
-                page.published_schema_json = json.dumps(published_schema, ensure_ascii=False)
+                updates["published_schema_json"] = json.dumps(published_schema, ensure_ascii=False)
                 changed = True
         if changed:
-            db.add(page)
+            page = update_page_with_revision(db, page, page.schema_revision, updates)
+            create_page_version(db, page, _json(page.schema_json, {}), message="实体字段引用已同步")
     db.commit()
 
 
@@ -683,16 +731,18 @@ def _sync_entity_field_metadata(db: Session, entity_id: int, field_id: int) -> N
     for page in pages:
         changed = False
         draft_schema = _json(page.schema_json, {})
+        updates = {}
         if _refresh_schema_field_metadata(db, draft_schema, field_id):
-            page.schema_json = json.dumps(draft_schema, ensure_ascii=False)
+            updates["schema_json"] = json.dumps(draft_schema, ensure_ascii=False)
             changed = True
         if page.published_schema_json:
             published_schema = _json(page.published_schema_json, {})
             if _refresh_schema_field_metadata(db, published_schema, field_id):
-                page.published_schema_json = json.dumps(published_schema, ensure_ascii=False)
+                updates["published_schema_json"] = json.dumps(published_schema, ensure_ascii=False)
                 changed = True
         if changed:
-            db.add(page)
+            page = update_page_with_revision(db, page, page.schema_revision, updates)
+            create_page_version(db, page, _json(page.schema_json, {}), message="实体字段元数据已同步")
     db.commit()
 
 

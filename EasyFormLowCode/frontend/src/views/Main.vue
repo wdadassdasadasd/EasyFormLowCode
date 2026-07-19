@@ -97,12 +97,12 @@
               <el-button plain @click="callDesigner('redoSchema')">重做</el-button>
             </div>
             <div class="action-group action-group-primary">
-              <el-button :icon="DocumentChecked" type="primary" plain @click="callDesigner('saveSchema')">保存</el-button>
-              <el-button :icon="Promotion" type="primary" @click="callDesigner('publishSchema')">发布</el-button>
-              <el-button :icon="View" @click="callDesigner('previewPage')">预览</el-button>
+              <el-button data-testid="designer-save" :icon="DocumentChecked" type="primary" plain @click="callDesigner('saveSchema')">保存</el-button>
+              <el-button data-testid="designer-publish" :icon="Promotion" type="primary" @click="callDesigner('publishSchema')">发布</el-button>
+              <el-button data-testid="designer-preview" :icon="View" @click="callDesigner('previewPage')">预览</el-button>
             </div>
             <div class="action-group">
-              <el-button :icon="RefreshLeft" @click="callDesigner('showVersion')">版本</el-button>
+              <el-button data-testid="designer-versions" :icon="RefreshLeft" @click="callDesigner('showVersion')">版本</el-button>
               <el-button :icon="Upload" @click="callDesigner('exportSchema')">导出</el-button>
               <el-button plain @click="callDesigner('syncEntityPage')">同步实体</el-button>
             </div>

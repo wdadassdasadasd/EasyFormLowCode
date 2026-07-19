@@ -6,7 +6,17 @@ from sqlalchemy.orm import Session
 from app.models.page import Page
 from app.models.page_record import PageRecord
 from app.services.analytics_service import build_stats_payload
+from app.services.runtime_limits import MAX_IN_MEMORY_SCAN, ensure_scan_limit
 from app.services.schema_contract import validate_record_data
+
+
+def _get_page_or_raise(db: Session, page_id: str) -> Page:
+    from app.services.page_schema_service import get_page_by_key
+
+    page = get_page_by_key(db, page_id)
+    if not page:
+        raise LookupError("page not found")
+    return page
 
 
 def record_to_response(record: PageRecord) -> dict[str, Any]:
@@ -26,9 +36,7 @@ def list_page_records(
     page_size: int,
     mode: str = "published",
 ) -> dict[str, Any]:
-    from app.services.page_schema_service import get_or_create_page
-
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     safe_page = max(page, 1)
     safe_page_size = max(min(page_size, 100), 1)
     normalized_filters = normalize_record_filters(page_obj, filters, mode=mode)
@@ -36,7 +44,8 @@ def list_page_records(
     query = db.query(PageRecord).filter(PageRecord.page_id == page_obj.id)
 
     if normalized_filters:
-        records = query.order_by(PageRecord.id.desc()).all()
+        records = query.order_by(PageRecord.id.desc()).limit(MAX_IN_MEMORY_SCAN + 1).all()
+        ensure_scan_limit(len(records), "record filtering")
         matched_records = [record for record in records if record_matches_filters(record, normalized_filters)]
         total = len(matched_records)
         max_page = max((total + safe_page_size - 1) // safe_page_size, 1)
@@ -69,17 +78,17 @@ def list_page_record_stats(
     filters: dict[str, str],
     mode: str = "published",
 ) -> dict[str, Any]:
-    from app.services.page_schema_service import get_or_create_page
-
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     schema_json = get_runtime_schema(page_obj, mode)
     normalized_filters = normalize_record_filters(page_obj, filters, mode=mode)
     records = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id)
         .order_by(PageRecord.id.desc())
+        .limit(MAX_IN_MEMORY_SCAN + 1)
         .all()
     )
+    ensure_scan_limit(len(records), "record statistics")
     matched_records = [record for record in records if record_matches_filters(record, normalized_filters)]
     rows = [
         {
@@ -134,9 +143,7 @@ def record_matches_filters(record: PageRecord, normalized_filters: dict[str, str
 
 
 def create_page_record(db: Session, page_id: str, data: dict[str, Any], mode: str = "published") -> PageRecord:
-    from app.services.page_schema_service import get_or_create_page
-
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     validation_errors = validate_record_data(get_runtime_schema(page_obj, mode), data)
     if validation_errors:
         raise ValueError("; ".join(validation_errors))
@@ -157,9 +164,7 @@ def update_page_record(
     data: dict[str, Any],
     mode: str = "published",
 ) -> PageRecord | None:
-    from app.services.page_schema_service import get_or_create_page
-
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     record = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id, PageRecord.id == record_id)
@@ -181,9 +186,7 @@ def update_page_record(
 
 
 def delete_page_record(db: Session, page_id: str, record_id: int) -> bool:
-    from app.services.page_schema_service import get_or_create_page
-
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     record = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id, PageRecord.id == record_id)
@@ -199,12 +202,10 @@ def delete_page_record(db: Session, page_id: str, record_id: int) -> bool:
 
 
 def delete_page_records(db: Session, page_id: str, record_ids: list[int]) -> int:
-    from app.services.page_schema_service import get_or_create_page
-
     unique_ids = sorted(set(record_ids))
     if len(unique_ids) != len(record_ids):
         raise ValueError("record ids must be unique")
-    page_obj = get_or_create_page(db, page_id)
+    page_obj = _get_page_or_raise(db, page_id)
     records = (
         db.query(PageRecord)
         .filter(PageRecord.page_id == page_obj.id, PageRecord.id.in_(unique_ids))

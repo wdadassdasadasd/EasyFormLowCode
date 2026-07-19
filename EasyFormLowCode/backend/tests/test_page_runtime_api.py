@@ -17,6 +17,7 @@ from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Page, PageRecord, PageVersion  # noqa: E402,F401
 from app.services.analytics_service import count_recent_records  # noqa: E402
+from app.services.runtime_limits import MAX_IN_MEMORY_SCAN, ensure_scan_limit  # noqa: E402
 
 
 CONTRACT_FIXTURE = json.loads(
@@ -88,14 +89,17 @@ def test_save_schema_creates_versions_and_restore(client):
 
     response = client.put(
         "/api/pages/demo_page/schema",
-        json={"name": "客户管理", "schema_json": second_schema},
+        json={"name": "客户管理", "schema_json": second_schema, "expected_revision": response.json()["schema_revision"]},
     )
     assert response.status_code == 200
 
     versions = client.get("/api/pages/demo_page/versions").json()
     assert [version["version_no"] for version in versions] == [2, 1]
 
-    restore_response = client.post(f"/api/pages/demo_page/versions/{versions[1]['id']}/restore")
+    restore_response = client.post(
+        f"/api/pages/demo_page/versions/{versions[1]['id']}/restore",
+        json={"expected_revision": response.json()["schema_revision"]},
+    )
     assert restore_response.status_code == 200
     assert restore_response.json()["schema_json"]["title"] == "用户管理"
 
@@ -104,7 +108,83 @@ def test_save_schema_creates_versions_and_restore(client):
     assert versions_after_restore[0]["message"] == "恢复到版本 1"
 
 
+def test_unknown_page_reads_return_not_found_without_creating_a_page(client):
+    assert client.get("/api/pages/missing_page").status_code == 404
+    assert client.get("/api/pages/missing_page/published").status_code == 404
+    assert client.get("/api/pages/missing_page/versions").status_code == 404
+    assert client.get("/api/runtime/pages/missing_page/records").status_code == 404
+    assert client.get("/api/runtime/pages/missing_page/stats").status_code == 404
+    assert client.get("/api/pages").json()[0]["page_id"] == "user_manage"
+
+
+def test_schema_save_keeps_legacy_first_write_page_creation(client):
+    response = client.put(
+        "/api/pages/created_by_schema/schema",
+        json={
+            "name": "Created",
+            "schema_json": {"schemaVersion": 1, "id": "created_by_schema", "title": "Created", "pageType": "crud", "fields": []},
+        },
+    )
+    assert response.status_code == 200
+    assert client.get("/api/pages/created_by_schema").status_code == 200
+
+
+def test_schema_revision_prevents_lost_updates_and_publish_does_not_advance_revision(client):
+    schema = {"schemaVersion": 1, "id": "revision_page", "title": "Revision", "pageType": "crud", "fields": []}
+    created = client.put("/api/pages/revision_page/schema", json={"name": "Revision", "schema_json": schema})
+    assert created.status_code == 200
+    assert created.json()["schema_revision"] == 1
+
+    saved = client.put(
+        "/api/pages/revision_page/schema",
+        json={"name": "Revision v2", "schema_json": {**schema, "title": "Revision v2"}, "expected_revision": 1},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["schema_revision"] == 2
+
+    conflict = client.put(
+        "/api/pages/revision_page/schema",
+        json={"name": "Stale", "schema_json": {**schema, "title": "Stale"}, "expected_revision": 1},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {
+        "message": "page schema has changed, reload the latest version",
+        "code": "schema_revision_conflict",
+        "expected_revision": 1,
+        "current_revision": 2,
+    }
+
+    published = client.post("/api/pages/revision_page/publish", json={"expected_revision": 2})
+    assert published.status_code == 200
+    assert published.json()["schema_revision"] == 2
+
+
+def test_project_page_template_is_atomic_and_creates_one_initial_version(client):
+    project = client.post("/api/projects", json={"name": "Template project"}).json()
+    invalid = client.post(
+        f"/api/projects/{project['id']}/pages",
+        json={"page_id": "bad_template", "name": "Bad", "template_schema": {"fields": {}}},
+    )
+    assert invalid.status_code == 422
+    assert client.get(f"/api/projects/{project['id']}/pages").json() == []
+
+    created = client.post(
+        f"/api/projects/{project['id']}/pages",
+        json={"page_id": "template_page", "name": "Template", "template_schema": {"queries": []}},
+    )
+    assert created.status_code == 201
+    assert len(client.get(f"/api/projects/{project['id']}/pages").json()) == 1
+    assert len(client.get("/api/pages/template_page/versions").json()) == 1
+
+
+def test_runtime_scan_limit_has_a_readable_boundary():
+    ensure_scan_limit(MAX_IN_MEMORY_SCAN, "record statistics")
+    with pytest.raises(ValueError, match="record statistics supports at most 1000 records"):
+        ensure_scan_limit(MAX_IN_MEMORY_SCAN + 1, "record statistics")
+
+
 def test_runtime_records_support_crud_search_and_pagination(client):
+    assert client.get("/api/pages").status_code == 200
     records = [
         {"username": "admin", "nickname": "系统管理员"},
         {"username": "zhangsan", "nickname": "张三"},
@@ -157,7 +237,7 @@ def test_publish_uses_snapshot_until_republished(client):
     )
     assert save_response.status_code == 200
 
-    publish_response = client.post("/api/pages/publish_page/publish")
+    publish_response = client.post("/api/pages/publish_page/publish", json={"expected_revision": save_response.json()["schema_revision"]})
     assert publish_response.status_code == 200
     assert publish_response.json()["schema_json"]["title"] == "Published Title"
     assert publish_response.json()["published_version_no"] == 1
@@ -165,7 +245,7 @@ def test_publish_uses_snapshot_until_republished(client):
 
     draft_response = client.put(
         "/api/pages/publish_page/schema",
-        json={"name": "Draft Title", "schema_json": draft_schema},
+        json={"name": "Draft Title", "schema_json": draft_schema, "expected_revision": publish_response.json()["schema_revision"]},
     )
     assert draft_response.status_code == 200
     assert draft_response.json()["status"] == "draft"
@@ -177,6 +257,13 @@ def test_publish_uses_snapshot_until_republished(client):
 
 
 def test_runtime_stats_use_filtered_records_not_current_page(client):
+    assert client.put(
+        "/api/pages/stats_page/schema",
+        json={
+            "name": "Stats",
+            "schema_json": {"schemaVersion": 1, "id": "stats_page", "title": "Stats", "pageType": "crud", "fields": []},
+        },
+    ).status_code == 200
     for index in range(12):
         status = "enabled" if index % 2 == 0 else "disabled"
         response = client.post(
@@ -275,7 +362,7 @@ def test_runtime_mode_uses_published_schema_snapshot(client):
     )
     assert save_response.status_code == 200
 
-    publish_response = client.post("/api/pages/runtime_mode_page/publish")
+    publish_response = client.post("/api/pages/runtime_mode_page/publish", json={"expected_revision": save_response.json()["schema_revision"]})
     assert publish_response.status_code == 200
 
     record_response = client.post(
@@ -286,7 +373,7 @@ def test_runtime_mode_uses_published_schema_snapshot(client):
 
     update_response = client.put(
         "/api/pages/runtime_mode_page/schema",
-        json={"name": "Runtime Mode Draft", "schema_json": draft_schema},
+        json={"name": "Runtime Mode Draft", "schema_json": draft_schema, "expected_revision": publish_response.json()["schema_revision"]},
     )
     assert update_response.status_code == 200
 
@@ -317,8 +404,9 @@ def test_runtime_writes_validate_against_requested_schema_mode(client):
     }
 
     assert client.put("/api/pages/write_mode_page/schema", json={"name": "Write mode", "schema_json": published_schema}).status_code == 200
-    assert client.post("/api/pages/write_mode_page/publish").status_code == 200
-    assert client.put("/api/pages/write_mode_page/schema", json={"name": "Write mode", "schema_json": draft_schema}).status_code == 200
+    first = client.get("/api/pages/write_mode_page").json()
+    assert client.post("/api/pages/write_mode_page/publish", json={"expected_revision": first["schema_revision"]}).status_code == 200
+    assert client.put("/api/pages/write_mode_page/schema", json={"name": "Write mode", "schema_json": draft_schema, "expected_revision": first["schema_revision"]}).status_code == 200
 
     assert client.post("/api/runtime/pages/write_mode_page/records?mode=draft", json={"data": {"draft": "ok"}}).status_code == 200
     assert client.post("/api/runtime/pages/write_mode_page/records", json={"data": {"draft": "not allowed"}}).status_code == 422

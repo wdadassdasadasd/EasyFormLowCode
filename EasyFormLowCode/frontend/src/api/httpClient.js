@@ -37,6 +37,21 @@ function buildUrl(path, params, baseUrl = API_BASE_URL) {
   return url
 }
 
+async function parseResponsePayload(response) {
+  const text = await response.text()
+  if (!text) return null
+
+  const contentType = response.headers?.get?.('content-type') || ''
+  const expectsJson = contentType.includes('application/json') || /^[[{]/.test(text.trim())
+  if (!expectsJson) return text
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
 export async function apiRequest(path, options = {}) {
   const { baseUrl, body, headers, onRequestSettled, params, ...fetchOptions } = options
   const url = buildUrl(path, params, baseUrl)
@@ -55,11 +70,12 @@ export async function apiRequest(path, options = {}) {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
 
-    const text = await response.text()
-    payload = text ? JSON.parse(text) : null
+    payload = await parseResponsePayload(response)
 
     if (!response.ok) {
-      const message = resolveErrorMessage(payload, response.status)
+      const message = typeof payload === 'string' && payload.trim()
+        ? `Request failed with ${response.status}`
+        : resolveErrorMessage(payload, response.status)
       throw new ApiError(message, { status: response.status, payload })
     }
 

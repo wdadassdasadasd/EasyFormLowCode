@@ -1,9 +1,9 @@
 import { apiRequest } from './httpClient'
 
-export function listRuntimeRecords(pageId, { datasource, mode = 'published', onRequestSettled, page, pageSize, filters = {} } = {}) {
+export function listRuntimeRecords(pageId, { datasource, mode = 'published', onRequestSettled, page, pageSize, filters = {}, signal } = {}) {
   const resolvedDatasource = datasource || {}
   const params = {
-    ...(filters || {}),
+    ...filters,
   }
   if (resolveDatasourceMode(resolvedDatasource) === 'rest') {
     params[resolvedDatasource.pageParamKey || 'page'] = page
@@ -19,10 +19,11 @@ export function listRuntimeRecords(pageId, { datasource, mode = 'published', onR
     runtimeMode: mode,
     requestType: 'list',
     params,
+    signal,
   })
 }
 
-export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequestSettled, filters = {} } = {}) {
+export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequestSettled, filters = {}, signal } = {}) {
   if (resolveDatasourceMode(datasource) === 'rest') {
     return Promise.reject(new Error('澶栭儴鏁版嵁婧愭殏涓嶆敮鎸佺粺璁¤兘鍔?'))
   }
@@ -33,6 +34,7 @@ export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequ
     runtimeMode: mode,
     requestType: 'stats',
     params: filters,
+    signal,
   })
 }
 
@@ -106,7 +108,7 @@ function executeDatasourceRequest(datasource, options = {}) {
   const mode = resolveDatasourceMode(datasource)
   const method = resolveRequestMethod(mode, datasource, options)
   const path = resolveRequestPath(mode, datasource, options)
-  const params = { ...(options.params || {}) }
+  const params = { ...options.params }
 
   if (!path) {
     const error = buildConfigError('Datasource endpoint is missing', { mode, requestType: options.requestType })
@@ -134,6 +136,7 @@ function executeDatasourceRequest(datasource, options = {}) {
     body: options.body,
     params,
     onRequestSettled: options.onRequestSettled,
+    signal: options.signal,
   })
 }
 

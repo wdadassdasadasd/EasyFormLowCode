@@ -17,6 +17,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
+    exclude: ['test/e2e/**', '**/node_modules/**'],
   },
   build: {
     // ECharts is loaded only by the lazy designer/preview routes; retain a small

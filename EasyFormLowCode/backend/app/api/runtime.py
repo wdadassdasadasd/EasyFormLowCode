@@ -28,8 +28,11 @@ from app.models.page import Page
 router = APIRouter(prefix="/runtime/pages", tags=["runtime"])
 
 
-def get_page(db: Session, page_id: str) -> Page | None:
-    return db.query(Page).filter(Page.page_key == page_id).first()
+def get_page(db: Session, page_id: str) -> Page:
+    page = db.query(Page).filter(Page.page_key == page_id).first()
+    if not page:
+        raise HTTPException(status_code=404, detail="page not found")
+    return page
 
 
 @router.get(
@@ -50,10 +53,12 @@ def get_runtime_records(
         for key, value in request.query_params.items()
         if key not in {"page", "pageSize", "mode"}
     }
-    entity_id = page_obj.entity_id if page_obj else None
-    if entity_id:
-        return list_entity_records(db, entity_id, filters, page, pageSize)
-    return list_page_records(db, page_id, filters, page, pageSize, mode=mode)
+    try:
+        if page_obj.entity_id:
+            return list_entity_records(db, page_obj.entity_id, filters, page, pageSize)
+        return list_page_records(db, page_id, filters, page, pageSize, mode=mode)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get(
@@ -72,10 +77,12 @@ def get_runtime_stats(
         for key, value in request.query_params.items()
         if key not in {"page", "pageSize", "mode"}
     }
-    entity_id = page_obj.entity_id if page_obj else None
-    if entity_id:
-        return list_entity_record_stats(db, entity_id, filters, get_runtime_schema(page_obj, mode))
-    return list_page_record_stats(db, page_id, filters, mode=mode)
+    try:
+        if page_obj.entity_id:
+            return list_entity_record_stats(db, page_obj.entity_id, filters, get_runtime_schema(page_obj, mode))
+        return list_page_record_stats(db, page_id, filters, mode=mode)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post(
@@ -90,12 +97,11 @@ def create_runtime_record(
 ):
     try:
         page_obj = get_page(db, page_id)
-        entity_id = page_obj.entity_id if page_obj else None
-        if entity_id:
-            record = create_entity_record(db, entity_id, payload.data)
+        if page_obj.entity_id:
+            record = create_entity_record(db, page_obj.entity_id, payload.data)
             return entity_record_to_response(db, record)
         record = create_page_record(db, page_id, payload.data, mode=mode)
-    except (LookupError, ValueError) as error:
+    except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return record_to_response(record)
 
@@ -113,9 +119,8 @@ def update_runtime_record(
 ):
     try:
         page_obj = get_page(db, page_id)
-        entity_id = page_obj.entity_id if page_obj else None
-        if entity_id:
-            record = update_entity_record(db, entity_id, record_id, payload.data)
+        if page_obj.entity_id:
+            record = update_entity_record(db, page_obj.entity_id, record_id, payload.data)
             if not record:
                 raise HTTPException(status_code=404, detail="record not found")
             return entity_record_to_response(db, record)
@@ -137,8 +142,7 @@ def delete_runtime_record(
 ):
     try:
         page_obj = get_page(db, page_id)
-        entity_id = page_obj.entity_id if page_obj else None
-        deleted = delete_entity_record(db, entity_id, record_id) if entity_id else delete_page_record(db, page_id, record_id)
+        deleted = delete_entity_record(db, page_obj.entity_id, record_id) if page_obj.entity_id else delete_page_record(db, page_id, record_id)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -156,8 +160,7 @@ def delete_runtime_records(
 ):
     try:
         page_obj = get_page(db, page_id)
-        entity_id = page_obj.entity_id if page_obj else None
-        deleted = delete_entity_records(db, entity_id, payload.record_ids) if entity_id else delete_page_records(db, page_id, payload.record_ids)
+        deleted = delete_entity_records(db, page_obj.entity_id, payload.record_ids) if page_obj.entity_id else delete_page_records(db, page_id, payload.record_ids)
     except ValueError as error:
         status_code = 404 if "not found" in str(error) else 422
         raise HTTPException(status_code=status_code, detail=str(error)) from error

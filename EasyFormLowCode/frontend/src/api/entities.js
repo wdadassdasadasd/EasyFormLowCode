@@ -36,6 +36,6 @@ export function createEntityRelation(entityId, payload) {
   return apiRequest(`/entities/${entityId}/relations`, { method: 'POST', body: payload })
 }
 
-export function listReferenceOptions(entityId, fieldId, search = '') {
-  return apiRequest(`/entities/${entityId}/fields/${fieldId}/reference-options`, { params: { search } })
+export function listReferenceOptions(entityId, fieldId, search = '', { signal } = {}) {
+  return apiRequest(`/entities/${entityId}/fields/${fieldId}/reference-options`, { params: { search }, signal })
 }

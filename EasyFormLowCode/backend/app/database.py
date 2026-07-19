@@ -1,10 +1,11 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
-DB_PATH = Path(__file__).resolve().parents[1] / "lowcode.db"
+DB_PATH = Path(os.environ.get("LOWCODE_DB_PATH", Path(__file__).resolve().parents[1] / "lowcode.db")).resolve()
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
