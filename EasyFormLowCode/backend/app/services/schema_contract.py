@@ -41,12 +41,16 @@ VALID_CHART_METRICS = {"count", "sum", "average", "min", "max"}
 
 
 def build_runtime_datasource(page_id: str) -> dict[str, Any]:
+    # listUrl 等只存相对路径，不含 /api 前缀。运行态请求由 runtime.js 直接拼出
+    # /runtime/pages/... 并由 httpClient 统一注入 API_BASE_URL；导出 SFC 通过
+    # ${API_BASE_URL}${listUrl} 拼接，前缀由 API_BASE_URL 贡献一次即可，避免
+    # 出现 /api/api/runtime/... 这样的重复路径。
     return {
         "mode": "runtime",
-        "listUrl": f"/api/runtime/pages/{page_id}/records",
-        "createUrl": f"/api/runtime/pages/{page_id}/records",
-        "updateUrl": f"/api/runtime/pages/{page_id}/records/:id",
-        "deleteUrl": f"/api/runtime/pages/{page_id}/records/:id",
+        "listUrl": f"/runtime/pages/{page_id}/records",
+        "createUrl": f"/runtime/pages/{page_id}/records",
+        "updateUrl": f"/runtime/pages/{page_id}/records/:id",
+        "deleteUrl": f"/runtime/pages/{page_id}/records/:id",
         "listMethod": "GET",
         "createMethod": "POST",
         "updateMethod": "PUT",

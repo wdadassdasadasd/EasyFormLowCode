@@ -25,7 +25,7 @@ export function listRuntimeRecords(pageId, { datasource, mode = 'published', onR
 
 export function getRuntimeStats(pageId, { datasource, mode = 'published', onRequestSettled, filters = {}, signal } = {}) {
   if (resolveDatasourceMode(datasource) === 'rest') {
-    return Promise.reject(new Error('澶栭儴鏁版嵁婧愭殏涓嶆敮鎸佺粺璁¤兘鍔?'))
+    return Promise.reject(new Error('外部数据源暂不支持统计能力'))
   }
 
   return executeDatasourceRequest(datasource, {
@@ -70,7 +70,7 @@ export function deleteRuntimeRecord(pageId, recordId, { datasource, onRequestSet
 
 export function deleteRuntimeRecords(pageId, recordIds, { datasource, onRequestSettled } = {}) {
   if (resolveDatasourceMode(datasource) === 'rest') {
-    return Promise.reject(new Error('澶栭儴鏁版嵁婧愭殏涓嶆敮鎸佹壒閲忓垹闄?'))
+    return Promise.reject(new Error('外部数据源暂不支持批量删除'))
   }
 
   return executeDatasourceRequest(datasource, {

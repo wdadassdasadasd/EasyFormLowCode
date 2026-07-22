@@ -18,7 +18,7 @@ def create_page_version(
     db: Session,
     page: Page,
     schema_json: dict[str, Any],
-    message: str = "淇濆瓨椤甸潰閰嶇疆",
+    message: str = "保存页面配置",
 ) -> PageVersion:
     for _ in range(3):
         latest = (

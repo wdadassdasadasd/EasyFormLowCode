@@ -219,7 +219,7 @@ import DesignerCanvas from '../components/designer/DesignerCanvas.vue'
 import DesignerMaterialPanel from '../components/designer/DesignerMaterialPanel.vue'
 import DesignerOverlays from '../components/designer/DesignerOverlays.vue'
 import DesignerPropertyPanel from '../components/designer/DesignerPropertyPanel.vue'
-import { publishPage, savePageSchema as savePageSchemaRequest, syncEntityPage as syncEntityPageRequest } from '../api/pages'
+import { getPage, publishPage, savePageSchema as savePageSchemaRequest, syncEntityPage as syncEntityPageRequest } from '../api/pages'
 import { validatePageSchemaContract } from '../api/schemaContract'
 import { listPageVersions, restorePageVersion } from '../api/versions'
 import { useDesignerSchemaEditor } from '../composables/useDesignerSchemaEditor'
@@ -231,7 +231,8 @@ import { DEFAULT_PAGE_ID } from '../config/appConfig'
 import { buildDemoRows } from '../schema/defaultSchema'
 import { MATERIAL_FIELD_TYPES, getPropertySetters } from '../schema/fieldTypes'
 import { normalizePageSchema, validatePageSchema } from '../schema/pageSchema'
-import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
+import { buildMetricCards } from '../utils/chartAggregator'
+import { buildChartViewModels } from '../utils/chartViewModels'
 import { buildSchemaJson, buildTemplateJson, buildVueSfc, downloadTextFile, parseImportedSchema } from '../utils/codeExporter'
 import { applyDatasourceCapabilityToActions } from '../utils/schemaEditor'
 
@@ -263,6 +264,21 @@ const { pageSchema, schemaRevision, replaceSchema, applyPageMetadata, cancelSche
     syncDesignerSelection(schema)
   },
 })
+
+// 在离线兜底或后端重启后，schemaRevision 可能为 null。直接发起带 expected_revision
+// 的保存/发布/同步/回滚会触发后端 schema_revision_required 409。这里在不丢弃本地
+// 编辑的前提下，静默拉取一次最新页面元数据（仅取 schema_revision / status / 发布信息，
+// replaceSchema 不会被调用），让乐观锁链路在恢复后端连通时自动恢复。
+async function ensureSchemaRevisionLoaded() {
+  if (schemaRevision.value != null) return schemaRevision.value
+  try {
+    const latest = await getPage(pageId.value)
+    applyPageMetadata(latest)
+  } catch {
+    // 后端仍不可达：保持 null，让下游命令以 409/网络错误暴露，由 caller 统一提示。
+  }
+  return schemaRevision.value
+}
 const { searchModel, dialogForm, formErrors, searchableFields, tableFields, formFields, syncModels } = useSchemaModels(pageSchema)
 syncSchemaModels = syncModels
 const {
@@ -476,15 +492,6 @@ const designerGridStyle = computed(() => {
   return { gridTemplateColumns: columns.join(' ') }
 })
 
-function buildChartViewModels(schema, aggregates = []) {
-  const configured = schema.charts?.length ? schema.charts : buildDefaultCharts(schema.fields)
-  const aggregateById = new Map((aggregates || []).map((chart) => [chart.id, chart]))
-  return configured.map((chart) => ({
-    ...chart,
-    aggregate: aggregateById.get(chart.id) || null,
-  }))
-}
-
 function syncAnalyticsSelection(schema = pageSchema) {
   const metricIds = (schema.metrics || []).map((metric) => metric.id)
   const chartIds = (schema.charts || []).map((chart) => chart.id)
@@ -589,10 +596,11 @@ async function saveSchema() {
     return
   }
   try {
+    const expectedRevision = await ensureSchemaRevisionLoaded()
     const result = await savePageSchemaRequest(pageId.value, {
       name: pageSchema.title,
       schema_json: validation.schema_json || plainSchema,
-      expected_revision: schemaRevision.value ?? undefined,
+      expected_revision: expectedRevision ?? undefined,
     })
     applyPageMetadata(result)
     setEditorStatus('saved')
@@ -606,7 +614,8 @@ async function saveSchema() {
 
 async function publishSchema() {
   try {
-    const result = await publishPage(pageId.value, schemaRevision.value)
+    const expectedRevision = await ensureSchemaRevisionLoaded()
+    const result = await publishPage(pageId.value, expectedRevision)
     applyPageMetadata(result)
     setEditorStatus('published')
     statusText.value = '页面已发布，可进入运行预览'
@@ -627,7 +636,8 @@ async function syncEntityPage() {
     return
   }
   try {
-    const result = await syncEntityPageRequest(pageId.value, schemaRevision.value)
+    const expectedRevision = await ensureSchemaRevisionLoaded()
+    const result = await syncEntityPageRequest(pageId.value, expectedRevision)
     replaceAndResetHistory(result.schema_json, 'sync-entity-page')
     applyPageMetadata(result)
     setEditorStatus('saved')
@@ -936,7 +946,8 @@ async function restoreVersion(version) {
   await ElMessageBox.confirm(`确认回滚到版本 ${version.version_no} 吗？`, '版本回滚', { type: 'warning' })
 
   try {
-    const result = await restorePageVersion(pageId.value, version.id, schemaRevision.value)
+    const expectedRevision = await ensureSchemaRevisionLoaded()
+    const result = await restorePageVersion(pageId.value, version.id, expectedRevision)
     replaceAndResetHistory(result.schema_json, 'restore-version')
     applyPageMetadata(result)
     setEditorStatus('saved')
@@ -951,7 +962,19 @@ async function restoreVersion(version) {
 
 async function reloadAfterSchemaConflict(error) {
   const detail = error?.payload?.detail
-  if (error?.status !== 409 || detail?.code !== 'schema_revision_conflict') return false
+  if (error?.status !== 409) return false
+  if (detail?.code === 'schema_revision_required') {
+    // 客户端缺少乐观锁版本号（通常因为后端重启或离线兜底恢复）。尝试静默拉取
+    // 最新页面元数据（不替换本地 schema，保留用户未保存的编辑），提示重试一次。
+    await ensureSchemaRevisionLoaded()
+    if (schemaRevision.value != null) {
+      ElMessage.info('已加载最新版本号，请重试该操作')
+    } else {
+      ElMessage.error('无法获取最新页面版本，请稍后重试或检查后端服务')
+    }
+    return true
+  }
+  if (detail?.code !== 'schema_revision_conflict') return false
   try {
     await ElMessageBox.confirm(
       'This page changed in another session. Loading the latest version will discard your unsaved local edits.',

@@ -33,6 +33,23 @@ describe('FieldControl', () => {
     expect(wrapper.findComponent(ElInputNumber).props('max')).toBe(10)
   })
 
+  it('normalizes empty string to null for number fields', () => {
+    // useSchemaModels 在初次同步时可能给 number 字段兜底为空串，ElInputNumber
+    // 收到空串会触发运行时警告并写入脏值。FieldControl 应在分发控制件时
+    // 把空串归一化为 null。
+    const wrapper = mount(FieldControl, {
+      props: {
+        field: createFieldByType('number'),
+        modelValue: '',
+        mode: 'form',
+      },
+    })
+
+    const input = wrapper.findComponent(ElInputNumber)
+    expect(input.exists()).toBe(true)
+    expect(input.props('modelValue')).toBe(null)
+  })
+
   it('uses search control metadata for radio fields', () => {
     const wrapper = mount(FieldControl, {
       props: {

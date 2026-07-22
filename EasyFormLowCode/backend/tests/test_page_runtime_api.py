@@ -108,6 +108,54 @@ def test_save_schema_creates_versions_and_restore(client):
     assert versions_after_restore[0]["message"] == "恢复到版本 1"
 
 
+def test_default_version_and_publish_messages_are_chinese_not_mojibake(client):
+    # Regression: service defaults used to be GBK-mojibake bytes written into
+    # UTF-8 source, making Page.name/PageVersion.message display as 闰岗...
+    # Ensure defaults round-trip as readable Chinese.
+    schema = {
+        "schemaVersion": 1,
+        "id": "default_msg_page",
+        "title": "默认消息页",
+        "pageType": "crud",
+        "fields": [],
+    }
+    saved = client.put("/api/pages/default_msg_page/schema", json={"name": "", "schema_json": schema})
+    assert saved.status_code == 200
+    # When name is empty, save_page_schema falls back to schema title.
+    assert saved.json()["name"] == "默认消息页"
+
+    versions = client.get("/api/pages/default_msg_page/versions").json()
+    assert versions, "save should create a default version"
+    assert versions[0]["message"] == "保存页面配置"
+
+    published = client.post(
+        "/api/pages/default_msg_page/publish",
+        json={"expected_revision": saved.json()["schema_revision"]},
+    )
+    assert published.status_code == 200
+    versions_after_publish = client.get("/api/pages/default_msg_page/versions").json()
+    assert any(version["message"] == "保存页面配置" for version in versions_after_publish)
+
+
+def test_publish_creates_initial_version_with_publish_message_for_page_without_versions(client):
+    # Cover the branch where publish_page falls back to create_page_version with
+    # the default publish message. Trigger the implicit "user_manage" page via
+    # GET /api/pages (which calls get_or_create_page) so the page has zero
+    # versions; publishing then stamps the publish default message.
+    listing = client.get("/api/pages")
+    assert listing.status_code == 200
+    assert any(page["page_id"] == "user_manage" for page in listing.json())
+
+    published = client.post(
+        "/api/pages/user_manage/publish",
+        json={"expected_revision": 1},
+    )
+    assert published.status_code == 200
+    versions = client.get("/api/pages/user_manage/versions").json()
+    assert versions, "publish should create an initial version when none exists"
+    assert versions[0]["message"] == "发布页面配置"
+
+
 def test_unknown_page_reads_return_not_found_without_creating_a_page(client):
     assert client.get("/api/pages/missing_page").status_code == 404
     assert client.get("/api/pages/missing_page/published").status_code == 404
@@ -513,7 +561,7 @@ def test_schema_contract_default_and_normalize_endpoints(client):
     default_schema = default_response.json()["schema_json"]
     assert default_schema["id"] == "orders"
     assert default_schema["schemaVersion"] == 6
-    assert default_schema["datasource"]["listUrl"] == "/api/runtime/pages/orders/records"
+    assert default_schema["datasource"]["listUrl"] == "/runtime/pages/orders/records"
 
     normalize_response = client.post(
         "/api/schema-contract/page-schema/normalize",

@@ -94,6 +94,13 @@ const isCheckboxGroup = computed(() => controlConfig.value.component === 'ElChec
 
 const fieldValue = computed({
   get() {
+    // ElInputNumber 要求 modelValue 为 Number | null，传入空串会触发
+    // "Expected Number | Null, got String" 运行时警告。初始归一化阶段
+    // useSchemaModels 可能以空串兜底，这里在分发到 number 控件时再做一次断言，
+    // 避免脏值污染与控制台噪声。
+    if (controlConfig.value.component === 'ElInputNumber' && props.modelValue === '') {
+      return null
+    }
     return props.modelValue
   },
   set(value) {

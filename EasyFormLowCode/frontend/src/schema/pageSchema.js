@@ -61,6 +61,10 @@ export function migratePageSchema(pageId = 'user_manage', schema = {}) {
   }
   migrated.schemaVersion = SCHEMA_VERSION
 
+  // 历史兼容：早期 schema 仅存 `api` 字段作为数据源描述，后改为 `datasource`。
+  // 当前 PageSchema 协议以 `datasource` 为唯一事实来源，`api` 仅为旧数据平滑
+  // 迁移而保留的镜像，normalize 阶段始终让两者保持一致。新代码请只读写
+  // `datasource`，下次 schema 迁移窗口再考虑废弃 `api` 字段。
   if (!isPlainObject(migrated.datasource) && isPlainObject(migrated.api)) {
     migrated.datasource = { ...migrated.api }
   }

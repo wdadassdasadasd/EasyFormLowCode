@@ -33,7 +33,7 @@ def get_or_create_page(db: Session, page_id: str) -> Page:
     page = Page(
         project_id=get_default_project(db).id,
         page_key=page_id,
-        name="鐢ㄦ埛绠＄悊",
+        name="用户管理",
         status="draft",
         schema_json=json.dumps(get_minimal_schema(page_id), ensure_ascii=False),
     )
@@ -159,7 +159,7 @@ def publish_page(db: Session, page_id: str, expected_revision: int | None = None
             db,
             page,
             json.loads(page.schema_json),
-            message="鍙戝竷椤甸潰閰嶇疆",
+            message="发布页面配置",
         )
         db.flush()
     page.published_schema_json = page.schema_json

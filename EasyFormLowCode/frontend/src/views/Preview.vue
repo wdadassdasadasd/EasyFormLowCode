@@ -179,7 +179,8 @@ import LazyChartRenderer from '../renderer/LazyChartRenderer.vue'
 import FieldControl from '../renderer/FieldControl.vue'
 import TableFieldColumn from '../renderer/TableFieldColumn.vue'
 import { buildDemoRows } from '../schema/defaultSchema'
-import { buildDefaultCharts, buildMetricCards } from '../utils/chartAggregator'
+import { buildMetricCards } from '../utils/chartAggregator'
+import { buildChartViewModels } from '../utils/chartViewModels'
 import { applyDatasourceCapabilityToActions } from '../utils/schemaEditor'
 
 defineOptions({
@@ -309,14 +310,7 @@ async function loadSchema() {
   return result
 }
 
-function buildChartViewModels(schema, aggregates = []) {
-  const configured = schema.charts?.length ? schema.charts : buildDefaultCharts(schema.fields)
-  const aggregateById = new Map((aggregates || []).map((chart) => [chart.id, chart]))
-  return configured.map((chart) => ({
-    ...chart,
-    aggregate: aggregateById.get(chart.id) || null,
-  }))
-}
+
 </script>
 
 <style lang="scss" scoped>

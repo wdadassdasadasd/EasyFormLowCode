@@ -14,10 +14,13 @@ export const DEFAULT_PAGE_ACTIONS = {
 export function buildRuntimeDatasource(pageId = 'user_manage') {
   return {
     mode: 'runtime',
-    listUrl: `/api/runtime/pages/${pageId}/records`,
-    createUrl: `/api/runtime/pages/${pageId}/records`,
-    updateUrl: `/api/runtime/pages/${pageId}/records/:id`,
-    deleteUrl: `/api/runtime/pages/${pageId}/records/:id`,
+    // 路径不含 /api 前缀：运行态由 runtime.js 直接拼 /runtime/pages/... 并经
+    // httpClient 加 API_BASE_URL；导出的 SFC 通过 ${API_BASE_URL}${listUrl} 拼
+    // 接，前缀由 API_BASE_URL 统一贡献，避免出现 /api/api/... 重复路径。
+    listUrl: `/runtime/pages/${pageId}/records`,
+    createUrl: `/runtime/pages/${pageId}/records`,
+    updateUrl: `/runtime/pages/${pageId}/records/:id`,
+    deleteUrl: `/runtime/pages/${pageId}/records/:id`,
     listMethod: 'GET',
     createMethod: 'POST',
     updateMethod: 'PUT',

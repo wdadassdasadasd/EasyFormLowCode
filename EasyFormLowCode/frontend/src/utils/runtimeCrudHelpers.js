@@ -81,11 +81,11 @@ export function resetFieldValues(target, fields, source = {}) {
 export function classifyRequestFailure(request = {}) {
   if (!request) return ''
   if (request.ok) return ''
-  if (request.configError) return '閰嶇疆缂哄け'
-  if (request.mappingError) return '杩斿洖浣撶己灏戞槧灏勫瓧娈?'
-  if (request.networkError) return '缃戠粶澶辫触'
+  if (request.configError) return '配置缺失'
+  if (request.mappingError) return '返回体缺少映射字段'
+  if (request.networkError) return '网络失败'
   if (request.status && Number(request.status) >= 400) return 'HTTP 4xx/5xx'
-  return '鏈煡澶辫触'
+  return '未知失败'
 }
 
 export function summarizeResponse(request = {}) {
